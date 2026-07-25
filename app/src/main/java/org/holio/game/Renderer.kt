@@ -106,6 +106,47 @@ class Renderer {
         drawButton(canvas, back, "Back", primary = true)
     }
 
+    /** Draw the level picker (Classic + real-world OSM levels). */
+    fun drawLevelSelect(
+        canvas: Canvas,
+        levels: List<Level>,
+        rects: Array<RectF>,
+        back: RectF,
+        message: String?,
+    ) {
+        canvas.drawColor(0xFF16240E.toInt())
+        val cx = canvas.width / 2f
+        drawCenteredText(canvas, "Choose a place", cx, rects[0].top - 92f, 84f, Color.WHITE)
+
+        for (i in levels.indices) drawLevelButton(canvas, rects[i], levels[i])
+        drawButton(canvas, back, "Back", primary = true)
+
+        if (message != null) {
+            drawCenteredText(canvas, message, cx, back.bottom + 46f, 30f, 0xFFFFCC80.toInt())
+        }
+    }
+
+    private fun drawLevelButton(canvas: Canvas, r: RectF, level: Level) {
+        fill.color = 0xCC12351E.toInt()
+        canvas.drawRoundRect(r, 22f, 22f, fill)
+        stroke.color = 0x66FFFFFF
+        stroke.strokeWidth = 3f
+        canvas.drawRoundRect(r, 22f, 22f, stroke)
+
+        drawCenteredText(canvas, level.title, r.centerX(), r.centerY() - 16f, 42f, Color.WHITE)
+        drawCenteredText(canvas, level.subtitle, r.centerX(), r.centerY() + 26f, 27f, 0xFFB2FF59.toInt())
+    }
+
+    /** Draw the "fetching real map data" screen shown while a level loads. */
+    fun drawLoading(canvas: Canvas, title: String) {
+        canvas.drawColor(backdrop)
+        val cx = canvas.width / 2f
+        val cy = canvas.height / 2f
+        drawCenteredText(canvas, "Loading…", cx, cy - 46f, 80f, Color.WHITE)
+        drawCenteredText(canvas, title, cx, cy + 36f, 52f, 0xFFB2FF59.toInt())
+        drawCenteredText(canvas, "fetching real map data from OpenStreetMap", cx, cy + 108f, 30f, 0x99FFFFFF.toInt())
+    }
+
     /** Draw the in-game pause / settings overlay on top of the frozen game. */
     fun drawPauseOverlay(canvas: Canvas, resume: RectF, restart: RectF, end: RectF) {
         fill.color = 0xC0000000.toInt()

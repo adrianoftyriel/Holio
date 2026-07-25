@@ -55,8 +55,13 @@ class GameWorld {
 
     private val respawnRng = Random(MAP_SEED xor 0x5151L)
 
+    /** When true the round uses [generateMap]; otherwise it clones [osmTemplates]. */
+    private var proceduralLevel = true
+    /** Immutable prop templates for a loaded real-world level, cloned each round. */
+    private var osmTemplates: List<Prop> = emptyList()
+
     init {
-        generateMap()
+        populateProps()
         buildOpponents()
         rebuildHoleList()
     }
@@ -67,7 +72,19 @@ class GameWorld {
         updateCamera()
     }
 
-    /** Start a brand-new round: same map, fresh holes, scores and timer. */
+    /** Use the original offline procedural field for the next round. */
+    fun useProceduralLevel() {
+        proceduralLevel = true
+        osmTemplates = emptyList()
+    }
+
+    /** Use a real-world level: [templates] are cloned fresh on each round. */
+    fun useOsmLevel(templates: List<Prop>) {
+        proceduralLevel = false
+        osmTemplates = templates
+    }
+
+    /** Start a brand-new round: same level, fresh holes, scores and timer. */
     fun restart() {
         timeLeftMs = roundMillis
         state = State.PLAYING
@@ -75,10 +92,22 @@ class GameWorld {
         inputY = 0f
         hole.reset()
         hole.placeAt(worldSize / 2f, worldSize / 2f)
-        generateMap()
+        populateProps()
         buildOpponents()
         rebuildHoleList()
         updateCamera()
+    }
+
+    /** Fill [props] from the current level (procedural map or cloned OSM data). */
+    private fun populateProps() {
+        if (proceduralLevel) {
+            generateMap()
+        } else {
+            props.clear()
+            for (t in osmTemplates) {
+                props.add(Prop(t.x, t.y, t.radius, t.type, t.rotationDeg))
+            }
+        }
     }
 
     fun update(dtSeconds: Float) {
