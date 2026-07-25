@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -15,9 +16,10 @@ import kotlin.math.sqrt
  *
  * The simulation lives entirely in the flat top-down world plane (see
  * [GameWorld]); this class projects those world coordinates onto the screen as
- * an isometric diamond. The ground and the hole are drawn as flat, projected
- * shapes; props are stood up as billboards off their projected ground point so
- * the scene reads with depth.
+ * an isometric diamond. A [zoom] factor keeps things zoomed in early and eases
+ * out as the player's hole grows. The ground and holes are drawn as flat,
+ * projected shapes; props stand up as billboards off their projected ground
+ * point so the scene reads with depth.
  */
 class Renderer {
 
@@ -38,9 +40,10 @@ class Renderer {
         (a.drawX + a.drawY).compareTo(b.drawX + b.drawY)
     }
 
-    /** Camera offset applied after the iso projection, recomputed each frame. */
+    /** Camera offset and zoom applied to the iso projection, per frame. */
     private var offX = 0f
     private var offY = 0f
+    private var zoom = START_ZOOM
 
     private val grassColor = 0xFF7CB342.toInt()
     private val grassLine = 0xFF8BC34A.toInt()
@@ -54,10 +57,11 @@ class Renderer {
         computeCamera(world)
         canvas.drawColor(backdrop)
         drawGround(canvas, world)
-        drawHole(canvas, world)
+        drawHoles(canvas, world)
         drawProps(canvas, world)
+        drawHoleLabels(canvas, world)
 
-        drawHud(canvas, world, gear.right + 22f)
+        drawHud(canvas, world)
         drawJoystick(canvas, joy)
         drawGear(canvas, gear)
         if (world.state == GameWorld.State.GAME_OVER) {
@@ -70,10 +74,9 @@ class Renderer {
         computeCamera(world)
         canvas.drawColor(backdrop)
         drawGround(canvas, world)
-        drawHole(canvas, world)
+        drawHoles(canvas, world)
         drawProps(canvas, world)
 
-        // Dim the field so the menu reads clearly on top.
         fill.color = 0xB0000000.toInt()
         canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), fill)
 
@@ -118,21 +121,27 @@ class Renderer {
 
     // ---- Isometric projection ------------------------------------------------
 
-    private fun projX(x: Float, y: Float) = (x - y) * ISO_X + offX
-    private fun projY(x: Float, y: Float) = (x + y) * ISO_Y + offY
+    private fun projX(x: Float, y: Float) = (x - y) * ISO_X * zoom + offX
+    private fun projY(x: Float, y: Float) = (x + y) * ISO_Y * zoom + offY
 
-    /** Centre the camera on the hole, clamped so we don't scroll far off-map. */
+    /** Ease the zoom toward a target set by the player's size, then centre. */
     private fun computeCamera(world: GameWorld) {
+        val player = world.hole
+        val targetZoom = (START_ZOOM * (player.baseRadius / player.radius).pow(0.5f))
+            .coerceIn(MIN_ZOOM, START_ZOOM)
+        zoom += (targetZoom - zoom) * ZOOM_LERP
+
         val w = world.worldSize
         val vw = world.viewportW
         val vh = world.viewportH
-        val hx = (world.hole.x - world.hole.y) * ISO_X
-        val hy = (world.hole.x + world.hole.y) * ISO_Y
+        val zx = ISO_X * zoom
+        val zy = ISO_Y * zoom
+        val hx = (player.x - player.y) * zx
+        val hy = (player.x + player.y) * zy
 
-        // Diamond extent in pre-offset projected space.
-        val minSX = -w * ISO_X
-        val maxSX = w * ISO_X
-        val maxSY = w * (2f * ISO_Y)
+        val minSX = -w * zx
+        val maxSX = w * zx
+        val maxSY = w * (2f * zy)
         val margin = 180f
 
         val loX = vw - (maxSX + margin)
@@ -158,7 +167,6 @@ class Renderer {
         fill.color = grassColor
         canvas.drawPath(ground, fill)
 
-        // Grid lines along the two world axes.
         stroke.color = grassLine
         stroke.strokeWidth = 2f
         var g = 0f
@@ -168,27 +176,41 @@ class Renderer {
             g += 140f
         }
 
-        // Raised border along the diamond edges.
         stroke.color = borderColor
         stroke.strokeWidth = 12f
         canvas.drawPath(ground, stroke)
     }
 
-    private fun drawHole(canvas: Canvas, world: GameWorld) {
-        val h = world.hole
+    private fun drawHoles(canvas: Canvas, world: GameWorld) {
+        for (h in world.holes) drawHolePit(canvas, h)
+    }
+
+    private fun drawHolePit(canvas: Canvas, h: Hole) {
         val cx = projX(h.x, h.y)
         val cy = projY(h.x, h.y)
-        // A ground circle of radius R projects to an ellipse with these half-axes.
-        val rx = h.radius * ISO_X * SQRT2
-        val ry = h.radius * ISO_Y * SQRT2
+        val rx = h.radius * ISO_X * zoom * SQRT2
+        val ry = h.radius * ISO_Y * zoom * SQRT2
 
         fill.color = 0x22000000
         canvas.drawOval(cx - rx - 7f, cy - ry - 4f, cx + rx + 7f, cy + ry + 4f, fill)
         fill.color = Color.BLACK
         canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, fill)
-        stroke.color = 0x33FFFFFF
-        stroke.strokeWidth = 3f
-        canvas.drawOval(cx - rx + 3f, cy - ry + 3f, cx + rx - 3f, cy + ry - 3f, stroke)
+        // Coloured rim so holes are told apart at a glance.
+        stroke.color = h.rimColor
+        stroke.strokeWidth = (4f * zoom).coerceIn(3f, 9f)
+        canvas.drawOval(cx - rx + 2f, cy - ry + 2f, cx + rx - 2f, cy + ry - 2f, stroke)
+    }
+
+    /** Opponent name tags, drawn after props so they aren't hidden behind trees. */
+    private fun drawHoleLabels(canvas: Canvas, world: GameWorld) {
+        for (h in world.holes) {
+            if (h.isPlayer) continue
+            val cx = projX(h.x, h.y)
+            val ry = h.radius * ISO_Y * zoom * SQRT2
+            text.setShadowLayer(5f, 0f, 2f, 0xCC000000.toInt())
+            drawCenteredText(canvas, h.name, cx, projY(h.x, h.y) - ry - 20f, 32f, h.rimColor)
+            text.clearShadowLayer()
+        }
     }
 
     private fun drawProps(canvas: Canvas, world: GameWorld) {
@@ -202,10 +224,8 @@ class Renderer {
         for (prop in depthSorted) {
             val gx = projX(prop.drawX, prop.drawY)
             val gy = projY(prop.drawX, prop.drawY)
-            // Cull anything comfortably off-screen (props can be tall, so give
-            // extra headroom above).
             if (gx < -240f || gx > world.viewportW + 240f ||
-                gy < -300f || gy > world.viewportH + 160f
+                gy < -320f || gy > world.viewportH + 160f
             ) continue
             drawProp(canvas, prop, gx, gy)
         }
@@ -213,12 +233,11 @@ class Renderer {
 
     private fun drawProp(canvas: Canvas, prop: Prop, gx: Float, gy: Float) {
         val s = prop.drawScale
-        val r = prop.radius * s
-        val h = prop.radius * prop.type.heightFactor * s
+        val r = prop.radius * s * zoom
+        val h = prop.radius * prop.type.heightFactor * s * zoom
         val body = prop.type.bodyColor
         val accent = prop.type.accentColor
 
-        // Flat ground shadow at the projected footprint.
         shadow.color = 0x33000000
         canvas.drawOval(gx - r * 0.95f, gy - r * 0.5f, gx + r * 0.95f, gy + r * 0.5f, shadow)
 
@@ -231,21 +250,19 @@ class Renderer {
             }
             PropType.TREE -> {
                 val trunkW = r * 0.38f
-                fill.color = accent // brown trunk
+                fill.color = accent
                 rect.set(gx - trunkW, gy - h * 0.6f, gx + trunkW, gy)
                 canvas.drawRect(rect, fill)
-                fill.color = body // canopy
+                fill.color = body
                 canvas.drawCircle(gx, gy - h * 0.72f, r, fill)
                 fill.color = 0xFF43A047.toInt()
                 canvas.drawCircle(gx - r * 0.28f, gy - h * 0.8f, r * 0.55f, fill)
             }
             PropType.CAR -> {
                 val bw = r * 1.35f
-                // Lower body.
                 fill.color = body
                 rect.set(gx - bw, gy - h * 0.55f, gx + bw, gy)
                 canvas.drawRoundRect(rect, r * 0.35f, r * 0.35f, fill)
-                // Cabin.
                 fill.color = accent
                 rect.set(gx - bw * 0.6f, gy - h * 1.15f, gx + bw * 0.6f, gy - h * 0.5f)
                 canvas.drawRoundRect(rect, r * 0.3f, r * 0.3f, fill)
@@ -253,11 +270,9 @@ class Renderer {
             PropType.HOUSE -> {
                 val bw = r * 0.9f
                 val wallTop = gy - h * 0.6f
-                // Front wall.
                 fill.color = body
                 rect.set(gx - bw, wallTop, gx + bw, gy)
                 canvas.drawRect(rect, fill)
-                // Pitched roof.
                 fill.color = accent
                 roof.reset()
                 roof.moveTo(gx - bw * 1.15f, wallTop)
@@ -265,7 +280,6 @@ class Renderer {
                 roof.lineTo(gx, gy - h)
                 roof.close()
                 canvas.drawPath(roof, fill)
-                // Door.
                 fill.color = darken(body, 0.6f)
                 rect.set(gx - bw * 0.24f, gy - h * 0.28f, gx + bw * 0.24f, gy)
                 canvas.drawRect(rect, fill)
@@ -275,19 +289,26 @@ class Renderer {
 
     // ---- HUD & controls ------------------------------------------------------
 
-    private fun drawHud(canvas: Canvas, world: GameWorld, scoreLeft: Float) {
-        text.textSize = 54f
-        text.textAlign = Paint.Align.LEFT
-        text.color = Color.WHITE
-        text.setShadowLayer(6f, 0f, 3f, 0x99000000.toInt())
+    private fun drawHud(canvas: Canvas, world: GameWorld) {
+        val w = canvas.width.toFloat()
 
-        canvas.drawText("Score: ${world.score}", scoreLeft, 78f, text)
-
+        // Timer, top-centre.
         val secs = world.secondsLeft()
-        text.textAlign = Paint.Align.RIGHT
-        text.color = if (secs <= 10) 0xFFFF5252.toInt() else Color.WHITE
-        canvas.drawText(formatTime(secs), canvas.width - 28f, 78f, text)
+        text.setShadowLayer(6f, 0f, 3f, 0x99000000.toInt())
+        drawCenteredText(
+            canvas, formatTime(secs), w / 2f, 52f, 56f,
+            if (secs <= 10) 0xFFFF5252.toInt() else Color.WHITE
+        )
 
+        // Scoreboard, top-right: ranked name + score, player highlighted.
+        text.textAlign = Paint.Align.RIGHT
+        text.textSize = 34f
+        var y = 46f
+        for ((i, h) in world.standings().withIndex()) {
+            text.color = if (h.isPlayer) 0xFFB2FF59.toInt() else Color.WHITE
+            canvas.drawText("${i + 1}. ${h.name}  ${h.score}", w - 24f, y, text)
+            y += 42f
+        }
         text.clearShadowLayer()
     }
 
@@ -307,7 +328,6 @@ class Renderer {
         stroke.strokeWidth = 3f
         canvas.drawRoundRect(r, 18f, 18f, stroke)
 
-        // A simple cog: a ring with short radial teeth.
         val cx = r.centerX()
         val cy = r.centerY()
         val ring = r.width() * 0.22f
@@ -329,15 +349,26 @@ class Renderer {
     }
 
     private fun drawGameOver(canvas: Canvas, world: GameWorld) {
-        fill.color = 0xB0000000.toInt()
+        fill.color = 0xC0000000.toInt()
         canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), fill)
 
+        val standings = world.standings()
+        val playerRank = standings.indexOfFirst { it.isPlayer }.coerceAtLeast(0)
         val cx = canvas.width / 2f
-        val cy = canvas.height / 2f
-        drawCenteredText(canvas, "Time's Up!", cx, cy - 90f, 88f, Color.WHITE)
-        drawCenteredText(canvas, "Score: ${world.score}", cx, cy - 10f, 60f, Color.WHITE)
-        drawCenteredText(canvas, "Tap to play again", cx, cy + 90f, 44f, 0xFFB2FF59.toInt())
-        drawCenteredText(canvas, "or use the gear to end or restart", cx, cy + 150f, 34f, 0x99FFFFFF.toInt())
+        var y = canvas.height * 0.20f
+
+        val heading = if (playerRank == 0) "You Win!" else "You came ${ordinal(playerRank + 1)}"
+        drawCenteredText(canvas, heading, cx, y, 88f, if (playerRank == 0) 0xFFB2FF59.toInt() else Color.WHITE)
+        y += 92f
+
+        for ((i, h) in standings.withIndex()) {
+            val color = if (h.isPlayer) 0xFFB2FF59.toInt() else Color.WHITE
+            drawCenteredText(canvas, "${i + 1}.  ${h.name}  —  ${h.score}", cx, y, 46f, color)
+            y += 58f
+        }
+
+        y += 20f
+        drawCenteredText(canvas, "Tap to play again", cx, y, 42f, 0x99FFFFFF.toInt())
     }
 
     // ---- Shared UI helpers ---------------------------------------------------
@@ -372,6 +403,13 @@ class Renderer {
 
     private fun formatTime(seconds: Int): String = "%d:%02d".format(seconds / 60, seconds % 60)
 
+    private fun ordinal(n: Int): String = when (n) {
+        1 -> "1st"
+        2 -> "2nd"
+        3 -> "3rd"
+        else -> "${n}th"
+    }
+
     private fun darken(color: Int, f: Float): Int {
         val a = (color ushr 24) and 0xFF
         val r = (((color ushr 16) and 0xFF) * f).toInt().coerceIn(0, 255)
@@ -385,5 +423,10 @@ class Renderer {
         private const val ISO_X = 0.5f
         private const val ISO_Y = 0.25f
         private val SQRT2 = sqrt(2f)
+
+        /** Zoom eases between these as the player's hole grows. */
+        private const val START_ZOOM = 2.4f
+        private const val MIN_ZOOM = 0.7f
+        private const val ZOOM_LERP = 0.06f
     }
 }
