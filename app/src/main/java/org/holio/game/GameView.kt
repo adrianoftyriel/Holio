@@ -2,6 +2,7 @@ package org.holio.game
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -21,18 +22,33 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
     // Track which pointer owns the joystick so a second finger can't hijack it.
     private var joyPointerId = -1
 
+    /** Screen-space rect for the "Update" button; recomputed on size changes. */
+    private val updateButtonRect = RectF()
+
+    /** Invoked (on the UI thread) when the Update button is tapped. */
+    var onUpdateClick: (() -> Unit)? = null
+
     init {
         holder.addCallback(this)
         isFocusable = true
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        world.setViewport(width.toFloat(), height.toFloat())
+        onSizeKnown(width, height)
         startLoop()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        world.setViewport(width.toFloat(), height.toFloat())
+        onSizeKnown(width, height)
+    }
+
+    private fun onSizeKnown(w: Int, h: Int) {
+        world.setViewport(w.toFloat(), h.toFloat())
+        val bw = 220f
+        val bh = 76f
+        val left = w / 2f - bw / 2f
+        val top = 20f
+        updateButtonRect.set(left, top, left + bw, top + bh)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -70,11 +86,22 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
 
     /** Called by [GameThread]. */
     fun render(canvas: Canvas) {
-        renderer.draw(canvas, world, joystick)
+        renderer.draw(canvas, world, joystick, updateButtonRect)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // On the game-over screen, any tap starts a fresh round.
+        val action = event.actionMasked
+        // The Update button takes priority everywhere (even on the game-over
+        // screen) so tapping it never also restarts or steers.
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            val idx = event.actionIndex
+            if (updateButtonRect.contains(event.getX(idx), event.getY(idx))) {
+                onUpdateClick?.invoke()
+                return true
+            }
+        }
+
+        // On the game-over screen, any other tap starts a fresh round.
         if (world.state == GameWorld.State.GAME_OVER) {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                 world.restart()

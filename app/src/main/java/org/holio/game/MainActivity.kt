@@ -12,11 +12,15 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var gameView: GameView
+    private lateinit var updater: Updater
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        gameView = GameView(this)
+        updater = Updater(this)
+        gameView = GameView(this).apply {
+            onUpdateClick = { updater.checkForUpdate() }
+        }
         setContentView(gameView)
     }
 

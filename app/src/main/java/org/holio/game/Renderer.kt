@@ -27,7 +27,7 @@ class Renderer {
     private val grassLine = 0xFF8BC34A.toInt()
     private val borderColor = 0xFF33691E.toInt()
 
-    fun draw(canvas: Canvas, world: GameWorld, joy: Joystick) {
+    fun draw(canvas: Canvas, world: GameWorld, joy: Joystick, updateButton: RectF) {
         canvas.drawColor(grassColor)
 
         canvas.save()
@@ -44,6 +44,8 @@ class Renderer {
         if (world.state == GameWorld.State.GAME_OVER) {
             drawGameOver(canvas, world)
         }
+        // Drawn last so it stays tappable on top of the game-over overlay.
+        drawUpdateButton(canvas, updateButton)
     }
 
     private fun drawGround(canvas: Canvas, world: GameWorld) {
@@ -174,6 +176,31 @@ class Renderer {
         canvas.drawCircle(joy.originX, joy.originY, Joystick.MAX_RADIUS, fill)
         fill.color = 0x88FFFFFF.toInt()
         canvas.drawCircle(joy.thumbX, joy.thumbY, Joystick.MAX_RADIUS * 0.45f, fill)
+    }
+
+    private fun drawUpdateButton(canvas: Canvas, r: RectF) {
+        if (r.isEmpty) return
+        // Rounded button with a small download glyph (arrow into a tray) and label.
+        fill.color = 0xCC1B5E20.toInt()
+        canvas.drawRoundRect(r, 18f, 18f, fill)
+        stroke.color = 0xFFB2FF59.toInt()
+        stroke.strokeWidth = 3f
+        canvas.drawRoundRect(r, 18f, 18f, stroke)
+
+        // Download arrow on the left side of the button.
+        val gx = r.left + 34f
+        val cy = r.centerY()
+        stroke.color = Color.WHITE
+        stroke.strokeWidth = 5f
+        canvas.drawLine(gx, cy - 16f, gx, cy + 8f, stroke)
+        canvas.drawLine(gx - 10f, cy - 2f, gx, cy + 10f, stroke)
+        canvas.drawLine(gx + 10f, cy - 2f, gx, cy + 10f, stroke)
+        canvas.drawLine(gx - 12f, cy + 18f, gx + 12f, cy + 18f, stroke)
+
+        text.color = Color.WHITE
+        text.textAlign = Paint.Align.LEFT
+        text.textSize = 38f
+        canvas.drawText("UPDATE", gx + 24f, cy + 14f, text)
     }
 
     private fun drawGameOver(canvas: Canvas, world: GameWorld) {

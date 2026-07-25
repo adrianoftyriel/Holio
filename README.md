@@ -5,7 +5,8 @@ that roams a map and swallows everything it's big enough to eat. Each object you
 swallow makes the hole a little bigger, so you can move on to larger prey. Rack
 up as many points as you can before the timer runs out.
 
-**No ads. No tracking. No network access at all.**
+**No ads. No tracking.** The only network use is the optional in-game **Update**
+button, which checks GitHub Releases for a newer APK.
 
 This is the first, deliberately simple version: one map, single player. More
 maps, obstacles, opponents and modes can come later.
@@ -22,6 +23,19 @@ maps, obstacles, opponents and modes can come later.
 
 The map is the same every round (fixed seed), so you can learn it and improve.
 
+### Updating in-game
+
+Tap the **UPDATE** button at the top of the screen. The app asks GitHub for the
+latest release and, if it's newer than what you have installed, offers to
+download and install it. Because every build is signed with the same checked-in
+debug keystore, updates install cleanly over previous versions.
+
+> **Requires public releases.** GitHub does not allow anonymous downloads of
+> release assets from a **private** repository, and the app deliberately embeds
+> no access token. While the repo is private the button will report
+> *"Couldn't reach releases."* Make the repository public (Settings → General →
+> Danger Zone → Change visibility) for the updater to work.
+
 ## Project layout
 
 ```
@@ -35,8 +49,9 @@ app/src/main/
 │   ├── Renderer.kt       – top-down 2D drawing
 │   ├── Hole.kt           – the player hole (movement + growth)
 │   ├── Prop.kt           – swallowable objects and their types
-│   └── Joystick.kt       – floating on-screen joystick
-└── res/                  – icon, theme, strings
+│   ├── Joystick.kt       – floating on-screen joystick
+│   └── Updater.kt        – in-game "check GitHub Releases & install" updater
+└── res/                  – icon, theme, strings, FileProvider paths
 ```
 
 The game is pure Android SDK (Kotlin + Canvas) — no third-party game engine and

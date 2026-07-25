@@ -36,6 +36,9 @@ captures/
 # Keystore files
 *.jks
 *.keystore
+# ...except the shared debug keystore, committed so every CI build signs
+# identically and the in-app updater can install updates over each other.
+!app/debug.keystore
 
 # OS
 .DS_Store
