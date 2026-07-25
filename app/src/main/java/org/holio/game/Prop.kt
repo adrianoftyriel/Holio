@@ -43,6 +43,9 @@ class Prop(
     var swallowT: Float = 0f
     var removed: Boolean = false
 
+    /** Which hole is currently swallowing this prop (null until claimed). */
+    var swallower: Hole? = null
+
     /** Interpolated draw state while sinking into the hole. */
     var drawX: Float = x
     var drawY: Float = y

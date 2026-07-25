@@ -10,8 +10,9 @@ on the main menu, which checks GitHub Releases for a newer APK.
 
 The world is drawn in a **2:1 isometric** view: the ground is a diamond, the
 hole is a pit on it, and props (bushes, trees, cars, houses) stand up off the
-ground with shadows for a sense of depth. It's still one map, single player —
-more maps, obstacles, opponents and modes can come later.
+ground with shadows for a sense of depth. The camera starts zoomed in and eases
+out as your hole grows. You're not alone — a few **AI opponents** roam the same
+map, and a hole that's big enough can even swallow a smaller one.
 
 ## Screens
 
@@ -29,10 +30,17 @@ more maps, obstacles, opponents and modes can come later.
 - **Swallow:** drive the hole over objects smaller than it. They sink in, you
   score, and the hole grows.
   - Bushes → Trees → Cars → Houses, in roughly increasing size and value.
-- **Goal:** score as high as you can before the timer runs out (round length is
-  set in Settings).
-- **Restart:** tap the screen on the "Time's Up!" screen to play again, or use
-  the gear to restart or end the level at any time.
+- **Compete:** three AI opponents eat props alongside you, each tracked on the
+  live scoreboard (top-right). Grow bigger than a rival and roll over it to
+  swallow it — you steal some of its score and it respawns small. Get caught by
+  a bigger hole and the same happens to you.
+- **Zoom:** the view starts tight and pulls back as you grow, so you always have
+  room to manoeuvre.
+- **Goal:** finish the round with the highest score. The round ends when the
+  timer runs out **or** when there's nothing left on the map to swallow —
+  whichever comes first — and the final standings show where you placed.
+- **Restart:** tap the "results" screen to play again, or use the gear to
+  restart or end the level at any time.
 
 The map is the same every round (fixed seed), so you can learn it and improve.
 
@@ -58,9 +66,9 @@ app/src/main/
 │   ├── MainActivity.kt   – fullscreen host activity
 │   ├── GameView.kt       – SurfaceView, screen flow (menu/game), input, lifecycle
 │   ├── GameThread.kt     – the ~60 FPS game loop
-│   ├── GameWorld.kt      – all game state, map generation, update logic
-│   ├── Renderer.kt       – isometric drawing + menu/settings/pause screens
-│   ├── Hole.kt           – the player hole (movement + growth)
+│   ├── GameWorld.kt      – all game state, map gen, AI opponents, update logic
+│   ├── Renderer.kt       – isometric drawing, zoom, scoreboard + menu screens
+│   ├── Hole.kt           – a hole (player or AI): movement, growth, score
 │   ├── Prop.kt           – swallowable objects and their types
 │   ├── Joystick.kt       – floating on-screen joystick
 │   ├── Settings.kt       – persisted player settings (round length)
