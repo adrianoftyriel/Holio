@@ -5,10 +5,11 @@ that roams a map and swallows everything it's big enough to eat. Each object you
 swallow makes the hole a little bigger, so you can move on to larger prey. Rack
 up as many points as you can before the timer runs out.
 
-**No ads. No tracking.** Network is used only for two optional things you choose
-to trigger: the **Update** button (checks GitHub Releases for a newer APK) and
-loading a **real-world level** (fetches map data from OpenStreetMap). The
-offline *Classic Field* needs no network at all.
+**No ads. No tracking.** Network is used only for things you choose to trigger:
+the **Update** button (checks GitHub Releases for a newer APK), loading a
+**real-world level** (fetches map data from OpenStreetMap), and **local
+multiplayer** (talks only to other phones on the same Wi-Fi — no servers). The
+offline *Classic Field*, single player, needs no network at all.
 
 The world is drawn in a **2:1 isometric** view: the ground is a diamond, the
 hole is a pit on it, and props (bushes, trees, cars, houses) stand up off the
@@ -29,8 +30,11 @@ map, and a hole that's big enough can even swallow a smaller one.
     be reached, the picker says so and you can choose Classic instead.
 - **Settings** (from the menu) — choose the round length (1:00, 2:00 or 3:00);
   the choice is saved and used for every new round.
+- **Local Multiplayer** — play others on the same Wi-Fi (see below).
 - **In-game settings** — the ⚙ gear button (top-left) pauses the round and lets
   you **Resume**, **Restart Level**, or **End Level** (back to the main menu).
+  In a multiplayer game the shared round can't be paused, so the gear just
+  offers **Resume** or **Leave Game**.
 
 ## Gameplay
 
@@ -52,6 +56,28 @@ map, and a hole that's big enough can even swallow a smaller one.
   restart or end the level at any time.
 
 The map is the same every round (fixed seed), so you can learn it and improve.
+
+## Local multiplayer
+
+Play with people on the **same Wi-Fi network** — no internet, no accounts, no
+servers. From the main menu tap **Local Multiplayer**, then:
+
+- **Host Game** — your phone becomes the game host. The lobby shows your LAN
+  address (for manual joins), the players as they connect, and a **Bots** stepper
+  so you decide how many AI opponents fill out the match. Tap **Start** when
+  ready.
+- **Join Game** — hosts on your Wi-Fi are discovered automatically (via NSD /
+  mDNS); tap one to join. If discovery doesn't work on your network, tap
+  **Enter IP…** and type the address shown on the host's lobby screen.
+
+The host runs the authoritative simulation; every other phone streams its
+joystick input up and renders the world the host sends back (~20 updates/sec
+over TCP). Holes can swallow each other in multiplayer just like the bots do.
+
+> **First cut.** The networking was written without a two-device test rig, so
+> expect to shake out rough edges on real hardware — discovery quirks on some
+> routers, reconnect handling, and latency tuning. Manual **Enter IP** is the
+> reliable fallback if auto-discovery misbehaves.
 
 ### Updating in-game
 
@@ -79,7 +105,11 @@ app/src/main/
 │   ├── Renderer.kt       – isometric drawing, zoom, scoreboard + menu screens
 │   ├── Level.kt          – level catalogue (Classic + real-world OSM places)
 │   ├── OsmLevelLoader.kt – fetches OpenStreetMap data and builds a level
-│   ├── Hole.kt           – a hole (player or AI): movement, growth, score
+│   ├── Scene.kt          – read-only view the Renderer draws (world or client)
+│   ├── ClientScene.kt    – client-side world, populated from host snapshots
+│   ├── GameServer.kt     – multiplayer host: TCP + NSD + state broadcast
+│   ├── GameClient.kt     – multiplayer client: NSD discovery + snapshot apply
+│   ├── Hole.kt           – a hole (player, remote human, or AI)
 │   ├── Prop.kt           – swallowable objects and their types
 │   ├── Joystick.kt       – floating on-screen joystick
 │   ├── Settings.kt       – persisted player settings (round length)
