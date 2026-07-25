@@ -19,10 +19,16 @@ class GameWorld {
 
     var score = 0
         private set
-    var timeLeftMs = ROUND_MILLIS
+    var timeLeftMs = DEFAULT_ROUND_MILLIS
         private set
     var state = State.PLAYING
         private set
+
+    /**
+     * Length of a round in milliseconds. Set from the player's Settings before
+     * [restart] to change the round length of the next game.
+     */
+    var roundMillis = DEFAULT_ROUND_MILLIS
 
     /** Joystick input in the range [-1, 1] on each axis, set by the view. */
     var inputX = 0f
@@ -53,7 +59,7 @@ class GameWorld {
     /** Start a brand-new round: same map, fresh hole, score and timer. */
     fun restart() {
         score = 0
-        timeLeftMs = ROUND_MILLIS
+        timeLeftMs = roundMillis
         state = State.PLAYING
         inputX = 0f
         inputY = 0f
@@ -170,7 +176,7 @@ class GameWorld {
     }
 
     companion object {
-        private const val ROUND_MILLIS = 120_000L
+        private const val DEFAULT_ROUND_MILLIS = 120_000L
         private const val SWALLOW_SECONDS = 0.35f
         private const val MAP_SEED = 20260725L
     }

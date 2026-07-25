@@ -5,30 +5,43 @@ that roams a map and swallows everything it's big enough to eat. Each object you
 swallow makes the hole a little bigger, so you can move on to larger prey. Rack
 up as many points as you can before the timer runs out.
 
-**No ads. No tracking.** The only network use is the optional in-game **Update**
-button, which checks GitHub Releases for a newer APK.
+**No ads. No tracking.** The only network use is the optional **Update** button
+on the main menu, which checks GitHub Releases for a newer APK.
 
-This is the first, deliberately simple version: one map, single player. More
-maps, obstacles, opponents and modes can come later.
+The world is drawn in a **2:1 isometric** view: the ground is a diamond, the
+hole is a pit on it, and props (bushes, trees, cars, houses) stand up off the
+ground with shadows for a sense of depth. It's still one map, single player —
+more maps, obstacles, opponents and modes can come later.
+
+## Screens
+
+- **Main menu** — start the game (**Single Player**), open **Settings**, or
+  **Update** to fetch the latest release APK.
+- **Settings** (from the menu) — choose the round length (1:00, 2:00 or 3:00);
+  the choice is saved and used for every new round.
+- **In-game settings** — the ⚙ gear button (top-left) pauses the round and lets
+  you **Resume**, **Restart Level**, or **End Level** (back to the main menu).
 
 ## Gameplay
 
 - **Move:** touch and drag anywhere on screen — a floating joystick appears
   under your finger and steers the hole.
-- **Swallow:** drive the hole over objects smaller than it. They tip in, you
+- **Swallow:** drive the hole over objects smaller than it. They sink in, you
   score, and the hole grows.
   - Bushes → Trees → Cars → Houses, in roughly increasing size and value.
-- **Goal:** score as high as you can in the 2-minute round.
-- **Restart:** tap the screen on the "Time's Up!" screen to play again.
+- **Goal:** score as high as you can before the timer runs out (round length is
+  set in Settings).
+- **Restart:** tap the screen on the "Time's Up!" screen to play again, or use
+  the gear to restart or end the level at any time.
 
 The map is the same every round (fixed seed), so you can learn it and improve.
 
 ### Updating in-game
 
-Tap the **UPDATE** button at the top of the screen. The app asks GitHub for the
-latest release and, if it's newer than what you have installed, offers to
-download and install it. Because every build is signed with the same checked-in
-debug keystore, updates install cleanly over previous versions.
+Tap the **Update** button on the main menu. The app asks GitHub for the latest
+release and, if it's newer than what you have installed, offers to download and
+install it. Because every build is signed with the same checked-in debug
+keystore, updates install cleanly over previous versions.
 
 > **Requires public releases.** GitHub does not allow anonymous downloads of
 > release assets from a **private** repository, and the app deliberately embeds
@@ -43,19 +56,21 @@ app/src/main/
 ├── AndroidManifest.xml
 ├── java/org/holio/game/
 │   ├── MainActivity.kt   – fullscreen host activity
-│   ├── GameView.kt       – SurfaceView, input, lifecycle
+│   ├── GameView.kt       – SurfaceView, screen flow (menu/game), input, lifecycle
 │   ├── GameThread.kt     – the ~60 FPS game loop
 │   ├── GameWorld.kt      – all game state, map generation, update logic
-│   ├── Renderer.kt       – top-down 2D drawing
+│   ├── Renderer.kt       – isometric drawing + menu/settings/pause screens
 │   ├── Hole.kt           – the player hole (movement + growth)
 │   ├── Prop.kt           – swallowable objects and their types
 │   ├── Joystick.kt       – floating on-screen joystick
-│   └── Updater.kt        – in-game "check GitHub Releases & install" updater
+│   ├── Settings.kt       – persisted player settings (round length)
+│   └── Updater.kt        – "check GitHub Releases & install" updater
 └── res/                  – icon, theme, strings, FileProvider paths
 ```
 
 The game is pure Android SDK (Kotlin + Canvas) — no third-party game engine and
-no ad/analytics libraries.
+no ad/analytics libraries. The isometric look is a 2:1 projection applied at
+draw time; the simulation itself still runs in a flat top-down world plane.
 
 ## Building
 
