@@ -66,3 +66,18 @@ The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Install it with:
 - **minSdk:** 24 (Android 7.0)
 - **targetSdk / compileSdk:** 34
 - Orientation is landscape.
+
+## Releases (CI)
+
+Every push to `main` (including merged pull requests) runs the
+[`Build and Release APK`](.github/workflows/release.yml) GitHub Actions workflow,
+which:
+
+1. builds the APK with the Android SDK on a hosted runner,
+2. attaches it as a workflow artifact, and
+3. publishes a GitHub Release tagged `v1.0.<run-number>` with the APK attached.
+
+The APK is **debug-signed**, so it installs on any device without extra setup.
+Producing a Play-Store-ready *release*-signed APK later just means adding a
+keystore (stored as encrypted repository secrets) and a `signingConfig` in
+`app/build.gradle.kts` — no other changes to the pipeline are needed.

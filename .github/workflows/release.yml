@@ -1,0 +1,70 @@
+name: Build and Release APK
+
+# Build an APK and publish it as a GitHub Release whenever commits land on main
+# (for example when a pull request is merged). Can also be run manually.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Allow the built-in token to create releases and upload the APK.
+permissions:
+  contents: write
+
+# Don't let two pushes to main race on the same release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build APK and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Stage APK for release
+        id: stage
+        run: |
+          set -euo pipefail
+          version="v1.0.${{ github.run_number }}"
+          src="app/build/outputs/apk/debug/app-debug.apk"
+          dest="Holio-${version}.apk"
+          cp "$src" "$dest"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "apk=$dest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Holio-apk
+          path: ${{ steps.stage.outputs.apk }}
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.stage.outputs.version }}" \
+            "${{ steps.stage.outputs.apk }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "Holio ${{ steps.stage.outputs.version }}" \
+            --notes "Automated release built from \`${{ github.sha }}\` on push to \`main\`.
+
+          Download **${{ steps.stage.outputs.apk }}** below and install it on an Android device (you may need to allow *Install unknown apps*). This is a debug-signed build."
