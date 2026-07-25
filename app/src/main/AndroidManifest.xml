@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Used only by the optional in-game "Update" button to fetch the latest
-         release APK from GitHub. The game itself needs no network. -->
+    <!-- Network: the optional "Update" button, loading real-world OpenStreetMap
+         levels, and local multiplayer (TCP over the LAN). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Local multiplayer discovery (NSD / mDNS) and TCP over Wi-Fi. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Lets the app hand the downloaded APK to the system installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

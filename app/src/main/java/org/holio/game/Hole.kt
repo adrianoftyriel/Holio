@@ -72,6 +72,15 @@ class Hole(
         y = py
     }
 
+    /** Overwrite state from a network snapshot (multiplayer client rendering). */
+    fun setNet(nx: Float, ny: Float, nr: Float, nScore: Int) {
+        x = nx
+        y = ny
+        radius = nr
+        area = (PI * nr * nr).toFloat()
+        score = nScore
+    }
+
     companion object {
         /** Fraction of a swallowed thing's area added to the hole. */
         private const val GROWTH = 0.55f

@@ -11,29 +11,45 @@ import kotlin.random.Random
  * hole can swallow props, and a hole that is meaningfully bigger than another
  * can swallow it too — the loser respawns small and hands over some score.
  */
-class GameWorld {
+class GameWorld : Scene {
 
     enum class State { PLAYING, GAME_OVER }
 
+    /** A remote human's hole plus the input last received for it over the network. */
+    class NetPlayer(val id: Int, val hole: Hole) {
+        @Volatile var inX = 0f
+        @Volatile var inY = 0f
+    }
+
+    /** Metadata needed to create a remote human's hole at match setup. */
+    class RemoteInfo(val id: Int, val name: String)
+
     /** Square map, in pixels. Large enough to feel open on a phone screen. */
-    val worldSize = 2800f
+    override val worldSize = 2800f
 
-    /** The player's hole. */
-    val hole = Hole(worldSize / 2f, worldSize / 2f, 40f, "You", 0xFF80D8FF.toInt(), isPlayer = true)
+    /** The local player's hole (host or single-player). */
+    override val hole = Hole(worldSize / 2f, worldSize / 2f, 40f, "You", 0xFF80D8FF.toInt(), isPlayer = true)
 
-    /** Every hole in play (player first, then opponents), for logic and drawing. */
-    val holes = ArrayList<Hole>()
+    /** Every hole in play (player, then remote humans, then bots). */
+    override val holes = ArrayList<Hole>()
     private val opponents = ArrayList<Ai>()
 
-    val props = ArrayList<Prop>()
+    /** Remote human players (multiplayer host only). */
+    val netPlayers = ArrayList<NetPlayer>()
+
+    override val props = ArrayList<Prop>()
 
     var timeLeftMs = DEFAULT_ROUND_MILLIS
         private set
-    var state = State.PLAYING
+    override var state = State.PLAYING
         private set
 
     /** Round length in ms; set from Settings before [restart] to change it. */
     var roundMillis = DEFAULT_ROUND_MILLIS
+
+    /** Number of AI bots to spawn (host-configurable; 3 preserves single-player). */
+    var botCount = 3
+    private var remoteInfos: List<RemoteInfo> = emptyList()
 
     /** Joystick input in the range [-1, 1] on each axis, set by the view. */
     var inputX = 0f
@@ -45,9 +61,9 @@ class GameWorld {
     var camY = 0f
         private set
 
-    var viewportW = 0f
+    override var viewportW = 0f
         private set
-    var viewportH = 0f
+    override var viewportH = 0f
         private set
 
     /** Player score, surfaced for the HUD / game-over screen. */
@@ -62,7 +78,7 @@ class GameWorld {
 
     init {
         populateProps()
-        buildOpponents()
+        buildContenders()
         rebuildHoleList()
     }
 
@@ -84,6 +100,29 @@ class GameWorld {
         osmTemplates = templates
     }
 
+    /** Reset to a solo game: three bots, no remote humans. */
+    fun configureSinglePlayer() {
+        remoteInfos = emptyList()
+        botCount = 3
+    }
+
+    /** Configure a host match: one hole per remote human, plus [bots] AI. */
+    fun configureHostMatch(remotes: List<RemoteInfo>, bots: Int) {
+        remoteInfos = remotes
+        botCount = bots
+    }
+
+    /** Route a remote human's latest joystick input to their hole. */
+    fun setRemoteInput(id: Int, x: Float, y: Float) {
+        for (np in netPlayers) {
+            if (np.id == id) {
+                np.inX = x
+                np.inY = y
+                return
+            }
+        }
+    }
+
     /** Start a brand-new round: same level, fresh holes, scores and timer. */
     fun restart() {
         timeLeftMs = roundMillis
@@ -93,7 +132,7 @@ class GameWorld {
         hole.reset()
         hole.placeAt(worldSize / 2f, worldSize / 2f)
         populateProps()
-        buildOpponents()
+        buildContenders()
         rebuildHoleList()
         updateCamera()
     }
@@ -117,6 +156,12 @@ class GameWorld {
         val speed = hole.speed()
         hole.move(inputX * speed * dtSeconds, inputY * speed * dtSeconds, worldSize)
 
+        // Remote human players move from their last received network input.
+        for (np in netPlayers) {
+            val sp = np.hole.speed()
+            np.hole.move(np.inX * sp * dtSeconds, np.inY * sp * dtSeconds, worldSize)
+        }
+
         updateAi(dtSeconds)
         swallowProps(dtSeconds)
         resolveHoleEating()
@@ -137,10 +182,10 @@ class GameWorld {
     }
 
     /** Whole seconds remaining, rounded up (so it hits 0 exactly at the end). */
-    fun secondsLeft(): Int = ((timeLeftMs + 999L) / 1000L).toInt()
+    override fun secondsLeft(): Int = ((timeLeftMs + 999L) / 1000L).toInt()
 
     /** Holes ranked by score, highest first — for the scoreboard and results. */
-    fun standings(): List<Hole> = holes.sortedByDescending { it.score }
+    override fun standings(): List<Hole> = holes.sortedByDescending { it.score }
 
     // ---- Swallowing ----------------------------------------------------------
 
@@ -298,24 +343,45 @@ class GameWorld {
     private fun rebuildHoleList() {
         holes.clear()
         holes.add(hole)
+        for (np in netPlayers) holes.add(np.hole)
         for (ai in opponents) holes.add(ai.hole)
     }
 
-    /** Fresh opponents at the map corners, each with its own colour and brain. */
-    private fun buildOpponents() {
+    /**
+     * Fresh contenders: one hole per remote human (network-driven), then
+     * [botCount] AI bots, each placed at a distinct spawn point off-centre.
+     */
+    private fun buildContenders() {
         opponents.clear()
+        netPlayers.clear()
+        val spawns = spawnPoints()
+        var si = 0
+        var ci = 0
+
+        for (info in remoteInfos) {
+            val pos = spawns[si % spawns.size]; si++
+            val color = PALETTE[ci % PALETTE.size]; ci++
+            val h = Hole(pos.first, pos.second, hole.baseRadius, info.name, color, isPlayer = false)
+            netPlayers.add(NetPlayer(info.id, h))
+        }
+        for (b in 0 until botCount) {
+            val pos = spawns[si % spawns.size]; si++
+            val color = PALETTE[ci % PALETTE.size]; ci++
+            val name = BOT_NAMES[b % BOT_NAMES.size]
+            val h = Hole(pos.first, pos.second, hole.baseRadius, name, color, isPlayer = false)
+            opponents.add(Ai(h, Random(MAP_SEED + 101L * (b + 1))))
+        }
+    }
+
+    /** Distinct spawn points around the map (corners then edge midpoints). */
+    private fun spawnPoints(): List<Pair<Float, Float>> {
         val m = 460f
         val far = worldSize - m
-        val defs = listOf(
-            Triple("Rex", 0xFFEF5350.toInt(), m to m),
-            Triple("Vi", 0xFFAB47BC.toInt(), far to m),
-            Triple("Gus", 0xFFFFB300.toInt(), m to far),
+        val mid = worldSize / 2f
+        return listOf(
+            m to m, far to far, far to m, m to far,
+            mid to m, mid to far, m to mid, far to mid,
         )
-        for ((i, def) in defs.withIndex()) {
-            val (name, color, pos) = def
-            val h = Hole(pos.first, pos.second, hole.baseRadius, name, color, isPlayer = false)
-            opponents.add(Ai(h, Random(MAP_SEED + 101L * (i + 1))))
-        }
     }
 
     // ---- Camera & map --------------------------------------------------------
@@ -381,6 +447,13 @@ class GameWorld {
         /** How far an AI "sees" props/holes when choosing a target. */
         private const val AI_VISION = 1000f
         private const val RETARGET_SECONDS = 0.35f
+
+        /** Colours and names cycled through for remote players and bots. */
+        private val PALETTE = intArrayOf(
+            0xFFEF5350.toInt(), 0xFFAB47BC.toInt(), 0xFFFFB300.toInt(), 0xFF26C6DA.toInt(),
+            0xFFEC407A.toInt(), 0xFF9CCC65.toInt(), 0xFFFF7043.toInt(), 0xFF5C6BC0.toInt(),
+        )
+        private val BOT_NAMES = arrayOf("Rex", "Vi", "Gus", "Mo", "Zoe", "Ada", "Kai", "Pip")
 
         /** A hole must be this many times larger to swallow another hole. */
         private const val EAT_MARGIN = 1.25f

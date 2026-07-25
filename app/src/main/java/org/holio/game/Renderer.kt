@@ -53,7 +53,7 @@ class Renderer {
     // ---- Public entry points -------------------------------------------------
 
     /** Draw the playing field (with HUD, joystick and the settings gear). */
-    fun drawGame(canvas: Canvas, world: GameWorld, joy: Joystick, gear: RectF) {
+    fun drawGame(canvas: Canvas, world: Scene, joy: Joystick, gear: RectF) {
         computeCamera(world)
         canvas.drawColor(backdrop)
         drawGround(canvas, world)
@@ -70,7 +70,7 @@ class Renderer {
     }
 
     /** Draw the main menu over a dimmed isometric backdrop. */
-    fun drawMenu(canvas: Canvas, world: GameWorld, single: RectF, settings: RectF, update: RectF) {
+    fun drawMenu(canvas: Canvas, world: Scene, single: RectF, multi: RectF, settings: RectF, update: RectF) {
         computeCamera(world)
         canvas.drawColor(backdrop)
         drawGround(canvas, world)
@@ -82,13 +82,99 @@ class Renderer {
 
         val cx = canvas.width / 2f
         text.setShadowLayer(10f, 0f, 4f, 0xCC000000.toInt())
-        drawCenteredText(canvas, "HOLIO", cx, single.top - 150f, 132f, Color.WHITE)
-        drawCenteredText(canvas, "Ad-free • single player", cx, single.top - 66f, 40f, 0xFFB2FF59.toInt())
+        drawCenteredText(canvas, "HOLIO", cx, single.top - 132f, 120f, Color.WHITE)
+        drawCenteredText(canvas, "Ad-free • roll and swallow", cx, single.top - 58f, 38f, 0xFFB2FF59.toInt())
         text.clearShadowLayer()
 
         drawButton(canvas, single, "Single Player", primary = true)
+        drawButton(canvas, multi, "Local Multiplayer", primary = false)
         drawButton(canvas, settings, "Settings", primary = false)
         drawButton(canvas, update, "Update", primary = false)
+    }
+
+    /** Draw the multiplayer entry screen (Host / Join). */
+    fun drawMpMenu(canvas: Canvas, host: RectF, join: RectF, back: RectF) {
+        canvas.drawColor(0xFF16240E.toInt())
+        val cx = canvas.width / 2f
+        drawCenteredText(canvas, "Local Multiplayer", cx, host.top - 96f, 82f, Color.WHITE)
+        drawCenteredText(canvas, "Play others on the same Wi-Fi", cx, host.top - 36f, 32f, 0xFFB2FF59.toInt())
+        drawButton(canvas, host, "Host Game", primary = true)
+        drawButton(canvas, join, "Join Game", primary = false)
+        drawButton(canvas, back, "Back", primary = false)
+    }
+
+    /** Draw the host lobby: IP, joined players, bot count, Start / Back. */
+    fun drawHostLobby(
+        canvas: Canvas,
+        ip: String,
+        names: List<String>,
+        bots: Int,
+        minus: RectF,
+        plus: RectF,
+        start: RectF,
+        back: RectF,
+    ) {
+        canvas.drawColor(0xFF16240E.toInt())
+        val cx = canvas.width / 2f
+        val h = canvas.height.toFloat()
+        drawCenteredText(canvas, "Host Lobby", cx, h * 0.09f, 74f, Color.WHITE)
+        drawCenteredText(canvas, "Others join at  $ip  ·  or auto-discover", cx, h * 0.17f, 30f, 0xFFB2FF59.toInt())
+
+        val players = ArrayList<String>().apply { add("You (host)"); addAll(names) }
+        var y = h * 0.27f
+        drawCenteredText(canvas, "Players (${players.size})", cx, y, 34f, Color.WHITE)
+        y += 44f
+        for (p in players) {
+            drawCenteredText(canvas, p, cx, y, 30f, 0xFFDDDDDD.toInt())
+            y += 38f
+        }
+
+        // Bot count stepper.
+        drawButton(canvas, minus, "–", primary = false)
+        drawButton(canvas, plus, "+", primary = false)
+        drawCenteredText(canvas, "Bots: $bots", cx, minus.centerY(), 44f, Color.WHITE)
+
+        drawButton(canvas, start, "Start", primary = true)
+        drawButton(canvas, back, "Cancel", primary = false)
+    }
+
+    /** Draw the join screen: discovered hosts, manual IP entry, Back. */
+    fun drawJoinScreen(
+        canvas: Canvas,
+        found: List<GameClient.Found>,
+        foundRects: Array<RectF>,
+        enterIp: RectF,
+        back: RectF,
+        message: String?,
+    ) {
+        canvas.drawColor(0xFF16240E.toInt())
+        val cx = canvas.width / 2f
+        drawCenteredText(canvas, "Join a Game", cx, foundRects[0].top - 92f, 78f, Color.WHITE)
+        drawCenteredText(canvas, "Discovered hosts on this Wi-Fi:", cx, foundRects[0].top - 34f, 30f, 0xFFB2FF59.toInt())
+
+        for (i in foundRects.indices) {
+            val r = foundRects[i]
+            if (i < found.size) {
+                drawButton(canvas, r, "${found[i].name}  ·  ${found[i].host}", primary = false)
+            } else if (i == 0 && found.isEmpty()) {
+                drawCenteredText(canvas, "searching…", cx, r.centerY(), 34f, 0x99FFFFFF.toInt())
+            }
+        }
+
+        drawButton(canvas, enterIp, "Enter IP…", primary = true)
+        drawButton(canvas, back, "Back", primary = false)
+        if (message != null) {
+            drawCenteredText(canvas, message, cx, back.bottom + 46f, 30f, 0xFFFFCC80.toInt())
+        }
+    }
+
+    /** Draw a simple centered status screen (e.g. connecting / waiting). */
+    fun drawWaiting(canvas: Canvas, line1: String, line2: String) {
+        canvas.drawColor(backdrop)
+        val cx = canvas.width / 2f
+        val cy = canvas.height / 2f
+        drawCenteredText(canvas, line1, cx, cy - 30f, 66f, Color.WHITE)
+        drawCenteredText(canvas, line2, cx, cy + 44f, 34f, 0xFFB2FF59.toInt())
     }
 
     /** Draw the main-menu Settings screen (round-length picker). */
@@ -147,17 +233,20 @@ class Renderer {
         drawCenteredText(canvas, "fetching real map data from OpenStreetMap", cx, cy + 108f, 30f, 0x99FFFFFF.toInt())
     }
 
-    /** Draw the in-game pause / settings overlay on top of the frozen game. */
-    fun drawPauseOverlay(canvas: Canvas, resume: RectF, restart: RectF, end: RectF) {
+    /**
+     * Draw the in-game pause / settings overlay. In multiplayer ([mp]) the
+     * shared round can't be paused or restarted, so only Resume + Leave show.
+     */
+    fun drawPauseOverlay(canvas: Canvas, resume: RectF, restart: RectF, end: RectF, mp: Boolean = false) {
         fill.color = 0xC0000000.toInt()
         canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), fill)
 
         val cx = canvas.width / 2f
-        drawCenteredText(canvas, "Paused", cx, resume.top - 70f, 96f, Color.WHITE)
+        drawCenteredText(canvas, if (mp) "Menu" else "Paused", cx, resume.top - 70f, 96f, Color.WHITE)
 
         drawButton(canvas, resume, "Resume", primary = true)
-        drawButton(canvas, restart, "Restart Level", primary = false)
-        drawButton(canvas, end, "End Level", primary = false)
+        if (!mp) drawButton(canvas, restart, "Restart Level", primary = false)
+        drawButton(canvas, end, if (mp) "Leave Game" else "End Level", primary = false)
     }
 
     // ---- Isometric projection ------------------------------------------------
@@ -166,7 +255,7 @@ class Renderer {
     private fun projY(x: Float, y: Float) = (x + y) * ISO_Y * zoom + offY
 
     /** Ease the zoom toward a target set by the player's size, then centre. */
-    private fun computeCamera(world: GameWorld) {
+    private fun computeCamera(world: Scene) {
         val player = world.hole
         val targetZoom = (START_ZOOM * (player.baseRadius / player.radius).pow(0.5f))
             .coerceIn(MIN_ZOOM, START_ZOOM)
@@ -196,7 +285,7 @@ class Renderer {
 
     // ---- World drawing -------------------------------------------------------
 
-    private fun drawGround(canvas: Canvas, world: GameWorld) {
+    private fun drawGround(canvas: Canvas, world: Scene) {
         val w = world.worldSize
 
         ground.reset()
@@ -222,7 +311,7 @@ class Renderer {
         canvas.drawPath(ground, stroke)
     }
 
-    private fun drawHoles(canvas: Canvas, world: GameWorld) {
+    private fun drawHoles(canvas: Canvas, world: Scene) {
         for (h in world.holes) drawHolePit(canvas, h)
     }
 
@@ -243,7 +332,7 @@ class Renderer {
     }
 
     /** Opponent name tags, drawn after props so they aren't hidden behind trees. */
-    private fun drawHoleLabels(canvas: Canvas, world: GameWorld) {
+    private fun drawHoleLabels(canvas: Canvas, world: Scene) {
         for (h in world.holes) {
             if (h.isPlayer) continue
             val cx = projX(h.x, h.y)
@@ -254,7 +343,7 @@ class Renderer {
         }
     }
 
-    private fun drawProps(canvas: Canvas, world: GameWorld) {
+    private fun drawProps(canvas: Canvas, world: Scene) {
         depthSorted.clear()
         for (prop in world.props) {
             if (prop.removed || prop.drawScale <= 0.03f) continue
@@ -330,7 +419,7 @@ class Renderer {
 
     // ---- HUD & controls ------------------------------------------------------
 
-    private fun drawHud(canvas: Canvas, world: GameWorld) {
+    private fun drawHud(canvas: Canvas, world: Scene) {
         val w = canvas.width.toFloat()
 
         // Timer, top-centre.
@@ -389,7 +478,7 @@ class Renderer {
         }
     }
 
-    private fun drawGameOver(canvas: Canvas, world: GameWorld) {
+    private fun drawGameOver(canvas: Canvas, world: Scene) {
         fill.color = 0xC0000000.toInt()
         canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), fill)
 
