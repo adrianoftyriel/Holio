@@ -5,10 +5,19 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
- * Draws the world in a top-down 2D style. Props are drawn first and the hole
- * on top, so a prop sinking toward the hole centre visually disappears into it.
+ * Draws the world in a 2:1 isometric projection and renders the menu, settings
+ * and pause screens.
+ *
+ * The simulation lives entirely in the flat top-down world plane (see
+ * [GameWorld]); this class projects those world coordinates onto the screen as
+ * an isometric diamond. The ground and the hole are drawn as flat, projected
+ * shapes; props are stood up as billboards off their projected ground point so
+ * the scene reads with depth.
  */
 class Renderer {
 
@@ -17,155 +26,267 @@ class Renderer {
     private val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x33000000 }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textAlign = Paint.Align.LEFT
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
     private val roof = Path()
+    private val ground = Path()
     private val rect = RectF()
+
+    /** Props collected and depth-sorted once per frame (near ones drawn last). */
+    private val depthSorted = ArrayList<Prop>(128)
+    private val byDepth = Comparator<Prop> { a, b ->
+        (a.drawX + a.drawY).compareTo(b.drawX + b.drawY)
+    }
+
+    /** Camera offset applied after the iso projection, recomputed each frame. */
+    private var offX = 0f
+    private var offY = 0f
 
     private val grassColor = 0xFF7CB342.toInt()
     private val grassLine = 0xFF8BC34A.toInt()
     private val borderColor = 0xFF33691E.toInt()
+    private val backdrop = 0xFF20301A.toInt()
 
-    fun draw(canvas: Canvas, world: GameWorld, joy: Joystick, updateButton: RectF) {
-        canvas.drawColor(grassColor)
+    // ---- Public entry points -------------------------------------------------
 
-        canvas.save()
-        canvas.translate(-world.camX, -world.camY)
-
+    /** Draw the playing field (with HUD, joystick and the settings gear). */
+    fun drawGame(canvas: Canvas, world: GameWorld, joy: Joystick, gear: RectF) {
+        computeCamera(world)
+        canvas.drawColor(backdrop)
         drawGround(canvas, world)
-        drawProps(canvas, world)
         drawHole(canvas, world)
+        drawProps(canvas, world)
 
-        canvas.restore()
-
-        drawHud(canvas, world)
+        drawHud(canvas, world, gear.right + 22f)
         drawJoystick(canvas, joy)
+        drawGear(canvas, gear)
         if (world.state == GameWorld.State.GAME_OVER) {
             drawGameOver(canvas, world)
         }
-        // Drawn last so it stays tappable on top of the game-over overlay.
-        drawUpdateButton(canvas, updateButton)
     }
 
+    /** Draw the main menu over a dimmed isometric backdrop. */
+    fun drawMenu(canvas: Canvas, world: GameWorld, single: RectF, settings: RectF, update: RectF) {
+        computeCamera(world)
+        canvas.drawColor(backdrop)
+        drawGround(canvas, world)
+        drawHole(canvas, world)
+        drawProps(canvas, world)
+
+        // Dim the field so the menu reads clearly on top.
+        fill.color = 0xB0000000.toInt()
+        canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), fill)
+
+        val cx = canvas.width / 2f
+        text.setShadowLayer(10f, 0f, 4f, 0xCC000000.toInt())
+        drawCenteredText(canvas, "HOLIO", cx, single.top - 150f, 132f, Color.WHITE)
+        drawCenteredText(canvas, "Ad-free • single player", cx, single.top - 66f, 40f, 0xFFB2FF59.toInt())
+        text.clearShadowLayer()
+
+        drawButton(canvas, single, "Single Player", primary = true)
+        drawButton(canvas, settings, "Settings", primary = false)
+        drawButton(canvas, update, "Update", primary = false)
+    }
+
+    /** Draw the main-menu Settings screen (round-length picker). */
+    fun drawSettingsScreen(canvas: Canvas, roundSeconds: Int, durations: Array<RectF>, back: RectF) {
+        canvas.drawColor(0xFF16240E.toInt())
+
+        val cx = canvas.width / 2f
+        drawCenteredText(canvas, "Settings", cx, durations[0].top - 150f, 100f, Color.WHITE)
+        drawCenteredText(canvas, "Round length", cx, durations[0].top - 60f, 46f, 0xFFB2FF59.toInt())
+
+        for (i in Settings.DURATIONS.indices) {
+            val secs = Settings.DURATIONS[i]
+            drawButton(canvas, durations[i], formatTime(secs), primary = false, selected = secs == roundSeconds)
+        }
+        drawButton(canvas, back, "Back", primary = true)
+    }
+
+    /** Draw the in-game pause / settings overlay on top of the frozen game. */
+    fun drawPauseOverlay(canvas: Canvas, resume: RectF, restart: RectF, end: RectF) {
+        fill.color = 0xC0000000.toInt()
+        canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), fill)
+
+        val cx = canvas.width / 2f
+        drawCenteredText(canvas, "Paused", cx, resume.top - 70f, 96f, Color.WHITE)
+
+        drawButton(canvas, resume, "Resume", primary = true)
+        drawButton(canvas, restart, "Restart Level", primary = false)
+        drawButton(canvas, end, "End Level", primary = false)
+    }
+
+    // ---- Isometric projection ------------------------------------------------
+
+    private fun projX(x: Float, y: Float) = (x - y) * ISO_X + offX
+    private fun projY(x: Float, y: Float) = (x + y) * ISO_Y + offY
+
+    /** Centre the camera on the hole, clamped so we don't scroll far off-map. */
+    private fun computeCamera(world: GameWorld) {
+        val w = world.worldSize
+        val vw = world.viewportW
+        val vh = world.viewportH
+        val hx = (world.hole.x - world.hole.y) * ISO_X
+        val hy = (world.hole.x + world.hole.y) * ISO_Y
+
+        // Diamond extent in pre-offset projected space.
+        val minSX = -w * ISO_X
+        val maxSX = w * ISO_X
+        val maxSY = w * (2f * ISO_Y)
+        val margin = 180f
+
+        val loX = vw - (maxSX + margin)
+        val hiX = margin - minSX
+        offX = if (loX > hiX) (loX + hiX) / 2f else (vw / 2f - hx).coerceIn(loX, hiX)
+
+        val loY = vh - (maxSY + margin)
+        val hiY = margin
+        offY = if (loY > hiY) (loY + hiY) / 2f else (vh / 2f - hy).coerceIn(loY, hiY)
+    }
+
+    // ---- World drawing -------------------------------------------------------
+
     private fun drawGround(canvas: Canvas, world: GameWorld) {
-        val size = world.worldSize
-        // A subtle grid so movement is readable across the open field.
+        val w = world.worldSize
+
+        ground.reset()
+        ground.moveTo(projX(0f, 0f), projY(0f, 0f))
+        ground.lineTo(projX(w, 0f), projY(w, 0f))
+        ground.lineTo(projX(w, w), projY(w, w))
+        ground.lineTo(projX(0f, w), projY(0f, w))
+        ground.close()
+        fill.color = grassColor
+        canvas.drawPath(ground, fill)
+
+        // Grid lines along the two world axes.
         stroke.color = grassLine
         stroke.strokeWidth = 2f
         var g = 0f
-        while (g <= size) {
-            canvas.drawLine(g, 0f, g, size, stroke)
-            canvas.drawLine(0f, g, size, g, stroke)
+        while (g <= w) {
+            canvas.drawLine(projX(g, 0f), projY(g, 0f), projX(g, w), projY(g, w), stroke)
+            canvas.drawLine(projX(0f, g), projY(0f, g), projX(w, g), projY(w, g), stroke)
             g += 140f
         }
-        // Map border.
+
+        // Raised border along the diamond edges.
         stroke.color = borderColor
-        stroke.strokeWidth = 14f
-        canvas.drawRect(7f, 7f, size - 7f, size - 7f, stroke)
-    }
-
-    private fun drawProps(canvas: Canvas, world: GameWorld) {
-        // Only draw what's near the viewport.
-        val left = world.camX - 60f
-        val top = world.camY - 60f
-        val right = world.camX + world.viewportW + 60f
-        val bottom = world.camY + world.viewportH + 60f
-
-        for (prop in world.props) {
-            if (prop.removed) continue
-            val px = prop.drawX
-            val py = prop.drawY
-            if (px < left || px > right || py < top || py > bottom) continue
-            drawProp(canvas, prop)
-        }
-    }
-
-    private fun drawProp(canvas: Canvas, prop: Prop) {
-        val r = prop.radius * prop.drawScale
-        if (r <= 0.5f) return
-        val cx = prop.drawX
-        val cy = prop.drawY
-
-        // Ground shadow, offset down-right for a hint of depth.
-        canvas.drawOval(cx - r + 3f, cy - r * 0.5f + 4f, cx + r + 3f, cy + r + 4f, shadow)
-
-        when (prop.type) {
-            PropType.BUSH -> {
-                fill.color = prop.type.bodyColor
-                canvas.drawCircle(cx, cy, r, fill)
-                fill.color = prop.type.accentColor
-                canvas.drawCircle(cx - r * 0.3f, cy - r * 0.3f, r * 0.45f, fill)
-            }
-            PropType.TREE -> {
-                fill.color = prop.type.accentColor // trunk
-                canvas.drawCircle(cx, cy, r * 0.35f, fill)
-                fill.color = prop.type.bodyColor // canopy
-                canvas.drawCircle(cx, cy, r, fill)
-                fill.color = 0xFF43A047.toInt()
-                canvas.drawCircle(cx - r * 0.25f, cy - r * 0.25f, r * 0.5f, fill)
-            }
-            PropType.CAR -> {
-                canvas.save()
-                canvas.rotate(prop.rotationDeg, cx, cy)
-                fill.color = prop.type.bodyColor
-                rect.set(cx - r, cy - r * 0.55f, cx + r, cy + r * 0.55f)
-                canvas.drawRoundRect(rect, r * 0.3f, r * 0.3f, fill)
-                fill.color = prop.type.accentColor // windows / roof
-                rect.set(cx - r * 0.4f, cy - r * 0.4f, cx + r * 0.5f, cy + r * 0.4f)
-                canvas.drawRoundRect(rect, r * 0.2f, r * 0.2f, fill)
-                canvas.restore()
-            }
-            PropType.HOUSE -> {
-                canvas.save()
-                canvas.rotate(prop.rotationDeg, cx, cy)
-                fill.color = prop.type.bodyColor // walls
-                rect.set(cx - r * 0.8f, cy - r * 0.8f, cx + r * 0.8f, cy + r * 0.8f)
-                canvas.drawRect(rect, fill)
-                // Roof as a diagonal band for a top-down "pitched" look.
-                fill.color = prop.type.accentColor
-                roof.reset()
-                roof.moveTo(cx - r * 0.8f, cy - r * 0.8f)
-                roof.lineTo(cx + r * 0.8f, cy - r * 0.8f)
-                roof.lineTo(cx, cy)
-                roof.close()
-                canvas.drawPath(roof, fill)
-                canvas.restore()
-            }
-        }
+        stroke.strokeWidth = 12f
+        canvas.drawPath(ground, stroke)
     }
 
     private fun drawHole(canvas: Canvas, world: GameWorld) {
         val h = world.hole
-        // Soft rim for depth, then the black pit.
+        val cx = projX(h.x, h.y)
+        val cy = projY(h.x, h.y)
+        // A ground circle of radius R projects to an ellipse with these half-axes.
+        val rx = h.radius * ISO_X * SQRT2
+        val ry = h.radius * ISO_Y * SQRT2
+
         fill.color = 0x22000000
-        canvas.drawCircle(h.x, h.y, h.radius + 8f, fill)
+        canvas.drawOval(cx - rx - 7f, cy - ry - 4f, cx + rx + 7f, cy + ry + 4f, fill)
         fill.color = Color.BLACK
-        canvas.drawCircle(h.x, h.y, h.radius, fill)
-        // A faint inner highlight ring so the edge reads clearly on dark props.
+        canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, fill)
         stroke.color = 0x33FFFFFF
         stroke.strokeWidth = 3f
-        canvas.drawCircle(h.x, h.y, h.radius - 2f, stroke)
+        canvas.drawOval(cx - rx + 3f, cy - ry + 3f, cx + rx - 3f, cy + ry - 3f, stroke)
     }
 
-    private fun drawHud(canvas: Canvas, world: GameWorld) {
-        val pad = 28f
+    private fun drawProps(canvas: Canvas, world: GameWorld) {
+        depthSorted.clear()
+        for (prop in world.props) {
+            if (prop.removed || prop.drawScale <= 0.03f) continue
+            depthSorted.add(prop)
+        }
+        depthSorted.sortWith(byDepth)
+
+        for (prop in depthSorted) {
+            val gx = projX(prop.drawX, prop.drawY)
+            val gy = projY(prop.drawX, prop.drawY)
+            // Cull anything comfortably off-screen (props can be tall, so give
+            // extra headroom above).
+            if (gx < -240f || gx > world.viewportW + 240f ||
+                gy < -300f || gy > world.viewportH + 160f
+            ) continue
+            drawProp(canvas, prop, gx, gy)
+        }
+    }
+
+    private fun drawProp(canvas: Canvas, prop: Prop, gx: Float, gy: Float) {
+        val s = prop.drawScale
+        val r = prop.radius * s
+        val h = prop.radius * prop.type.heightFactor * s
+        val body = prop.type.bodyColor
+        val accent = prop.type.accentColor
+
+        // Flat ground shadow at the projected footprint.
+        shadow.color = 0x33000000
+        canvas.drawOval(gx - r * 0.95f, gy - r * 0.5f, gx + r * 0.95f, gy + r * 0.5f, shadow)
+
+        when (prop.type) {
+            PropType.BUSH -> {
+                fill.color = body
+                canvas.drawCircle(gx, gy - r * 0.5f, r, fill)
+                fill.color = accent
+                canvas.drawCircle(gx - r * 0.3f, gy - r * 0.75f, r * 0.5f, fill)
+            }
+            PropType.TREE -> {
+                val trunkW = r * 0.38f
+                fill.color = accent // brown trunk
+                rect.set(gx - trunkW, gy - h * 0.6f, gx + trunkW, gy)
+                canvas.drawRect(rect, fill)
+                fill.color = body // canopy
+                canvas.drawCircle(gx, gy - h * 0.72f, r, fill)
+                fill.color = 0xFF43A047.toInt()
+                canvas.drawCircle(gx - r * 0.28f, gy - h * 0.8f, r * 0.55f, fill)
+            }
+            PropType.CAR -> {
+                val bw = r * 1.35f
+                // Lower body.
+                fill.color = body
+                rect.set(gx - bw, gy - h * 0.55f, gx + bw, gy)
+                canvas.drawRoundRect(rect, r * 0.35f, r * 0.35f, fill)
+                // Cabin.
+                fill.color = accent
+                rect.set(gx - bw * 0.6f, gy - h * 1.15f, gx + bw * 0.6f, gy - h * 0.5f)
+                canvas.drawRoundRect(rect, r * 0.3f, r * 0.3f, fill)
+            }
+            PropType.HOUSE -> {
+                val bw = r * 0.9f
+                val wallTop = gy - h * 0.6f
+                // Front wall.
+                fill.color = body
+                rect.set(gx - bw, wallTop, gx + bw, gy)
+                canvas.drawRect(rect, fill)
+                // Pitched roof.
+                fill.color = accent
+                roof.reset()
+                roof.moveTo(gx - bw * 1.15f, wallTop)
+                roof.lineTo(gx + bw * 1.15f, wallTop)
+                roof.lineTo(gx, gy - h)
+                roof.close()
+                canvas.drawPath(roof, fill)
+                // Door.
+                fill.color = darken(body, 0.6f)
+                rect.set(gx - bw * 0.24f, gy - h * 0.28f, gx + bw * 0.24f, gy)
+                canvas.drawRect(rect, fill)
+            }
+        }
+    }
+
+    // ---- HUD & controls ------------------------------------------------------
+
+    private fun drawHud(canvas: Canvas, world: GameWorld, scoreLeft: Float) {
         text.textSize = 54f
+        text.textAlign = Paint.Align.LEFT
         text.color = Color.WHITE
         text.setShadowLayer(6f, 0f, 3f, 0x99000000.toInt())
 
-        // Score, top-left.
-        text.textAlign = Paint.Align.LEFT
-        canvas.drawText("Score: ${world.score}", pad, pad + 50f, text)
+        canvas.drawText("Score: ${world.score}", scoreLeft, 78f, text)
 
-        // Timer, top-right.
         val secs = world.secondsLeft()
-        val mm = secs / 60
-        val ss = secs % 60
-        val timeStr = "%d:%02d".format(mm, ss)
         text.textAlign = Paint.Align.RIGHT
         text.color = if (secs <= 10) 0xFFFF5252.toInt() else Color.WHITE
-        canvas.drawText(timeStr, canvas.width - pad, pad + 50f, text)
+        canvas.drawText(formatTime(secs), canvas.width - 28f, 78f, text)
 
         text.clearShadowLayer()
     }
@@ -178,29 +299,33 @@ class Renderer {
         canvas.drawCircle(joy.thumbX, joy.thumbY, Joystick.MAX_RADIUS * 0.45f, fill)
     }
 
-    private fun drawUpdateButton(canvas: Canvas, r: RectF) {
+    private fun drawGear(canvas: Canvas, r: RectF) {
         if (r.isEmpty) return
-        // Rounded button with a small download glyph (arrow into a tray) and label.
-        fill.color = 0xCC1B5E20.toInt()
+        fill.color = 0xCC12351E.toInt()
         canvas.drawRoundRect(r, 18f, 18f, fill)
-        stroke.color = 0xFFB2FF59.toInt()
+        stroke.color = 0x88FFFFFF.toInt()
         stroke.strokeWidth = 3f
         canvas.drawRoundRect(r, 18f, 18f, stroke)
 
-        // Download arrow on the left side of the button.
-        val gx = r.left + 34f
+        // A simple cog: a ring with short radial teeth.
+        val cx = r.centerX()
         val cy = r.centerY()
+        val ring = r.width() * 0.22f
+        val tooth = r.width() * 0.14f
         stroke.color = Color.WHITE
-        stroke.strokeWidth = 5f
-        canvas.drawLine(gx, cy - 16f, gx, cy + 8f, stroke)
-        canvas.drawLine(gx - 10f, cy - 2f, gx, cy + 10f, stroke)
-        canvas.drawLine(gx + 10f, cy - 2f, gx, cy + 10f, stroke)
-        canvas.drawLine(gx - 12f, cy + 18f, gx + 12f, cy + 18f, stroke)
-
-        text.color = Color.WHITE
-        text.textAlign = Paint.Align.LEFT
-        text.textSize = 38f
-        canvas.drawText("UPDATE", gx + 24f, cy + 14f, text)
+        stroke.strokeWidth = r.width() * 0.12f
+        canvas.drawCircle(cx, cy, ring, stroke)
+        var a = 0
+        while (a < 360) {
+            val rad = Math.toRadians(a.toDouble())
+            val dx = cos(rad).toFloat()
+            val dy = sin(rad).toFloat()
+            canvas.drawLine(
+                cx + dx * ring, cy + dy * ring,
+                cx + dx * (ring + tooth), cy + dy * (ring + tooth), stroke
+            )
+            a += 60
+        }
     }
 
     private fun drawGameOver(canvas: Canvas, world: GameWorld) {
@@ -209,17 +334,56 @@ class Renderer {
 
         val cx = canvas.width / 2f
         val cy = canvas.height / 2f
-        text.color = Color.WHITE
+        drawCenteredText(canvas, "Time's Up!", cx, cy - 90f, 88f, Color.WHITE)
+        drawCenteredText(canvas, "Score: ${world.score}", cx, cy - 10f, 60f, Color.WHITE)
+        drawCenteredText(canvas, "Tap to play again", cx, cy + 90f, 44f, 0xFFB2FF59.toInt())
+        drawCenteredText(canvas, "or use the gear to end or restart", cx, cy + 150f, 34f, 0x99FFFFFF.toInt())
+    }
+
+    // ---- Shared UI helpers ---------------------------------------------------
+
+    private fun drawButton(
+        canvas: Canvas,
+        r: RectF,
+        label: String,
+        primary: Boolean,
+        selected: Boolean = false,
+    ) {
+        fill.color = when {
+            selected -> 0xFF43A047.toInt()
+            primary -> 0xFF2E7D32.toInt()
+            else -> 0xCC12351E.toInt()
+        }
+        canvas.drawRoundRect(r, 22f, 22f, fill)
+        stroke.color = if (primary || selected) 0xFFB2FF59.toInt() else 0x66FFFFFF
+        stroke.strokeWidth = 3f
+        canvas.drawRoundRect(r, 22f, 22f, stroke)
+
+        drawCenteredText(canvas, label, r.centerX(), r.centerY(), 44f, Color.WHITE)
+    }
+
+    private fun drawCenteredText(canvas: Canvas, s: String, cx: Float, cy: Float, size: Float, color: Int) {
         text.textAlign = Paint.Align.CENTER
+        text.textSize = size
+        text.color = color
+        val fm = text.fontMetrics
+        canvas.drawText(s, cx, cy - (fm.ascent + fm.descent) / 2f, text)
+    }
 
-        text.textSize = 88f
-        canvas.drawText("Time's Up!", cx, cy - 70f, text)
+    private fun formatTime(seconds: Int): String = "%d:%02d".format(seconds / 60, seconds % 60)
 
-        text.textSize = 60f
-        canvas.drawText("Score: ${world.score}", cx, cy + 10f, text)
+    private fun darken(color: Int, f: Float): Int {
+        val a = (color ushr 24) and 0xFF
+        val r = (((color ushr 16) and 0xFF) * f).toInt().coerceIn(0, 255)
+        val g = (((color ushr 8) and 0xFF) * f).toInt().coerceIn(0, 255)
+        val b = ((color and 0xFF) * f).toInt().coerceIn(0, 255)
+        return (a shl 24) or (r shl 16) or (g shl 8) or b
+    }
 
-        text.textSize = 44f
-        text.color = 0xFFB2FF59.toInt()
-        canvas.drawText("Tap to play again", cx, cy + 120f, text)
+    companion object {
+        /** Half-width and quarter-height of a world unit in the 2:1 iso diamond. */
+        private const val ISO_X = 0.5f
+        private const val ISO_Y = 0.25f
+        private val SQRT2 = sqrt(2f)
     }
 }
