@@ -10,39 +10,49 @@ import kotlin.math.min
 
 /**
  * The game surface: owns the world, renderer, input and the loop thread, and
- * drives the top-level screen flow (main menu → game) plus the in-game pause
- * overlay. Wires the [SurfaceHolder] lifecycle to starting/stopping the loop.
+ * drives the top-level screen flow (menu → level picker → game) plus the
+ * in-game pause overlay. Wires the [SurfaceHolder] lifecycle to the game loop.
  */
 class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
 
     /** Top-level screens the surface can show. */
-    private enum class Screen { MENU, SETTINGS, GAME }
+    private enum class Screen { MENU, LEVELS, LOADING, SETTINGS, GAME }
 
     private val world = GameWorld()
     private val renderer = Renderer()
     private val joystick = Joystick()
     private val settings = Settings(context)
+    private val osmLoader = OsmLevelLoader()
 
     private var thread: GameThread? = null
+
+    @Volatile
     private var screen = Screen.MENU
 
     /** While true the game is frozen behind the in-game settings overlay. */
+    @Volatile
     private var pauseOpen = false
+
+    // Level-loading state (touched from a background thread + the UI thread).
+    @Volatile
+    private var loadingTitle = ""
+    @Volatile
+    private var levelMessage: String? = null
+    @Volatile
+    private var loadGeneration = 0
 
     // Track which pointer owns the joystick so a second finger can't hijack it.
     private var joyPointerId = -1
 
     // --- Screen-space button rects, recomputed on size changes. ---
-    // Main menu.
     private val rSingle = RectF()
     private val rSettings = RectF()
     private val rUpdate = RectF()
-    // Settings screen.
+    private val rLevels = Array(Level.ALL.size) { RectF() }
+    private val rLevelBack = RectF()
     private val rDurations = Array(Settings.DURATIONS.size) { RectF() }
     private val rBack = RectF()
-    // In-game.
     private val rGear = RectF()
-    // Pause overlay.
     private val rResume = RectF()
     private val rRestart = RectF()
     private val rEnd = RectF()
@@ -71,15 +81,27 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
 
     /** Lay out every screen's buttons for the current surface size. */
     private fun layoutUi(w: Float, h: Float) {
-        // Menu: a centred column of three buttons.
         val bw = min(w * 0.42f, 560f).coerceAtLeast(340f)
         val bh = 104f
         val gap = 26f
         val left = w / 2f - bw / 2f
+
+        // Main menu: a centred column of three buttons.
         var top = h * 0.40f
         rSingle.set(left, top, left + bw, top + bh); top += bh + gap
         rSettings.set(left, top, left + bw, top + bh); top += bh + gap
         rUpdate.set(left, top, left + bw, top + bh)
+
+        // Level picker: a taller column plus a Back button.
+        val lw = min(w * 0.5f, 620f).coerceAtLeast(360f)
+        val lh = 96f
+        val lgap = 20f
+        val lleft = w / 2f - lw / 2f
+        var lt = h * 0.24f
+        for (r in rLevels) {
+            r.set(lleft, lt, lleft + lw, lt + lh); lt += lh + lgap
+        }
+        rLevelBack.set(w / 2f - 160f, lt + 8f, w / 2f + 160f, lt + 8f + 84f)
 
         // Settings screen: a row of duration options above a Back button.
         val n = rDurations.size
@@ -147,6 +169,8 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
     fun render(canvas: Canvas) {
         when (screen) {
             Screen.MENU -> renderer.drawMenu(canvas, world, rSingle, rSettings, rUpdate)
+            Screen.LEVELS -> renderer.drawLevelSelect(canvas, Level.ALL, rLevels, rLevelBack, levelMessage)
+            Screen.LOADING -> renderer.drawLoading(canvas, loadingTitle)
             Screen.SETTINGS -> renderer.drawSettingsScreen(canvas, settings.roundSeconds, rDurations, rBack)
             Screen.GAME -> {
                 renderer.drawGame(canvas, world, joystick, rGear)
@@ -158,6 +182,8 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         return when (screen) {
             Screen.MENU -> onMenuTouch(event)
+            Screen.LEVELS -> onLevelsTouch(event)
+            Screen.LOADING -> true // ignore taps while a level loads
             Screen.SETTINGS -> onSettingsTouch(event)
             Screen.GAME -> onGameTouch(event)
         }
@@ -168,10 +194,25 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
             val x = event.x
             val y = event.y
             when {
-                rSingle.contains(x, y) -> startGame()
+                rSingle.contains(x, y) -> { levelMessage = null; screen = Screen.LEVELS }
                 rSettings.contains(x, y) -> screen = Screen.SETTINGS
                 rUpdate.contains(x, y) -> onUpdateClick?.invoke()
             }
+        }
+        return true
+    }
+
+    private fun onLevelsTouch(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val x = event.x
+            val y = event.y
+            for (i in rLevels.indices) {
+                if (rLevels[i].contains(x, y)) {
+                    selectLevel(Level.ALL[i])
+                    return true
+                }
+            }
+            if (rLevelBack.contains(x, y)) screen = Screen.MENU
         }
         return true
     }
@@ -194,7 +235,6 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
     private fun onGameTouch(event: MotionEvent): Boolean {
         val action = event.actionMasked
 
-        // Pause overlay swallows all input while it's open.
         if (pauseOpen) {
             if (action == MotionEvent.ACTION_DOWN) {
                 val x = event.x
@@ -208,7 +248,6 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
             return true
         }
 
-        // The gear opens the pause menu from anywhere (even on game-over).
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
             val idx = event.actionIndex
             if (rGear.contains(event.getX(idx), event.getY(idx))) {
@@ -217,7 +256,6 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
             }
         }
 
-        // On the game-over screen, any other tap starts a fresh round.
         if (world.state == GameWorld.State.GAME_OVER) {
             if (action == MotionEvent.ACTION_DOWN) startGame()
             return true
@@ -252,7 +290,48 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
         return true
     }
 
-    /** Start (or restart) a round with the currently chosen round length. */
+    // ---- Screen transitions --------------------------------------------------
+
+    private fun selectLevel(level: Level) {
+        levelMessage = null
+        if (level is Level.Osm) {
+            startOsmLoad(level)
+        } else {
+            world.useProceduralLevel()
+            startGame()
+        }
+    }
+
+    /** Fetch a real-world level off-thread, then start (or report failure). */
+    private fun startOsmLoad(level: Level.Osm) {
+        loadingTitle = level.title
+        screen = Screen.LOADING
+        val gen = ++loadGeneration
+        Thread {
+            try {
+                val result = osmLoader.load(level)
+                post {
+                    if (gen != loadGeneration || screen != Screen.LOADING) return@post
+                    if (result.props.isEmpty()) {
+                        levelMessage = "No map data found for ${level.title}."
+                        screen = Screen.LEVELS
+                    } else {
+                        world.useOsmLevel(result.props)
+                        startGame()
+                    }
+                }
+            } catch (e: Exception) {
+                post {
+                    if (gen == loadGeneration && screen == Screen.LOADING) {
+                        levelMessage = "Couldn't load ${level.title}: ${e.message ?: "network error"}"
+                        screen = Screen.LEVELS
+                    }
+                }
+            }
+        }.start()
+    }
+
+    /** Start (or restart) a round with the current level and round length. */
     private fun startGame() {
         world.roundMillis = settings.roundMillis
         world.restart()
@@ -284,8 +363,6 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
     }
 
     fun resume() {
-        // The loop restarts on surfaceCreated; if the surface is already valid,
-        // start it here too.
         if (holder.surface.isValid) startLoop()
     }
 }

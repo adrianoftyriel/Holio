@@ -5,8 +5,10 @@ that roams a map and swallows everything it's big enough to eat. Each object you
 swallow makes the hole a little bigger, so you can move on to larger prey. Rack
 up as many points as you can before the timer runs out.
 
-**No ads. No tracking.** The only network use is the optional **Update** button
-on the main menu, which checks GitHub Releases for a newer APK.
+**No ads. No tracking.** Network is used only for two optional things you choose
+to trigger: the **Update** button (checks GitHub Releases for a newer APK) and
+loading a **real-world level** (fetches map data from OpenStreetMap). The
+offline *Classic Field* needs no network at all.
 
 The world is drawn in a **2:1 isometric** view: the ground is a diamond, the
 hole is a pit on it, and props (bushes, trees, cars, houses) stand up off the
@@ -18,6 +20,13 @@ map, and a hole that's big enough can even swallow a smaller one.
 
 - **Main menu** — start the game (**Single Player**), open **Settings**, or
   **Update** to fetch the latest release APK.
+- **Level picker** — **Single Player** opens a list of places to play:
+  - **Classic Field** — the original offline procedural map.
+  - **Real-world levels** — actual locations pulled live from OpenStreetMap and
+    turned into things to eat: trees, bushes and street furniture become small
+    prey, buildings become the big prize. Bundled picks include **Central Park**
+    (New York), the **MIT campus**, and **Mont-Saint-Michel**. If the map can't
+    be reached, the picker says so and you can choose Classic instead.
 - **Settings** (from the menu) — choose the round length (1:00, 2:00 or 3:00);
   the choice is saved and used for every new round.
 - **In-game settings** — the ⚙ gear button (top-left) pauses the round and lets
@@ -68,6 +77,8 @@ app/src/main/
 │   ├── GameThread.kt     – the ~60 FPS game loop
 │   ├── GameWorld.kt      – all game state, map gen, AI opponents, update logic
 │   ├── Renderer.kt       – isometric drawing, zoom, scoreboard + menu screens
+│   ├── Level.kt          – level catalogue (Classic + real-world OSM places)
+│   ├── OsmLevelLoader.kt – fetches OpenStreetMap data and builds a level
 │   ├── Hole.kt           – a hole (player or AI): movement, growth, score
 │   ├── Prop.kt           – swallowable objects and their types
 │   ├── Joystick.kt       – floating on-screen joystick
@@ -119,3 +130,10 @@ The APK is **debug-signed**, so it installs on any device without extra setup.
 Producing a Play-Store-ready *release*-signed APK later just means adding a
 keystore (stored as encrypted repository secrets) and a `signingConfig` in
 `app/build.gradle.kts` — no other changes to the pipeline are needed.
+
+## Attribution
+
+Real-world levels are built from data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
+contributors, available under the Open Database License (ODbL). The data is
+fetched on demand from the public [Overpass API](https://overpass-api.de/) only
+when you choose a real-world level.
