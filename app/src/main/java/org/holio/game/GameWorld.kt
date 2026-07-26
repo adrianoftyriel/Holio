@@ -24,8 +24,8 @@ class GameWorld : Scene {
     /** Metadata needed to create a remote human's hole at match setup. */
     class RemoteInfo(val id: Int, val name: String)
 
-    /** Square map, in pixels. Large enough to feel open on a phone screen. */
-    override val worldSize = 2800f
+    /** Square map, in pixels. Big and open — the camera zooms to keep it readable. */
+    override val worldSize = 4200f
 
     /** The local player's hole (host or single-player). */
     override val hole = Hole(worldSize / 2f, worldSize / 2f, 40f, "You", 0xFF80D8FF.toInt(), isPlayer = true)
@@ -445,7 +445,7 @@ class GameWorld : Scene {
         private const val MAP_SEED = 20260725L
 
         /** How far an AI "sees" props/holes when choosing a target. */
-        private const val AI_VISION = 1000f
+        private const val AI_VISION = 1500f
         private const val RETARGET_SECONDS = 0.35f
 
         /** Colours and names cycled through for remote players and bots. */

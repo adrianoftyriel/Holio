@@ -4,8 +4,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RadialGradient
 import android.graphics.RectF
+import android.graphics.Shader
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -32,7 +35,14 @@ class Renderer {
     }
     private val roof = Path()
     private val ground = Path()
+    private val tilePath = Path()
     private val rect = RectF()
+
+    /** Radial-gradient paint for hole pits and the screen vignette. */
+    private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val vignette = Paint()
+    private var vigW = 0
+    private var vigH = 0
 
     /** Props collected and depth-sorted once per frame (near ones drawn last). */
     private val depthSorted = ArrayList<Prop>(128)
@@ -46,7 +56,7 @@ class Renderer {
     private var zoom = START_ZOOM
 
     private val grassColor = 0xFF7CB342.toInt()
-    private val grassLine = 0xFF8BC34A.toInt()
+    private val grassAlt = 0xFF6E9E36.toInt()
     private val borderColor = 0xFF33691E.toInt()
     private val backdrop = 0xFF20301A.toInt()
 
@@ -60,6 +70,10 @@ class Renderer {
         drawHoles(canvas, world)
         drawProps(canvas, world)
         drawHoleLabels(canvas, world)
+
+        // Soft vignette to frame the scene.
+        ensureVignette(canvas.width, canvas.height)
+        canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), vignette)
 
         drawHud(canvas, world)
         drawJoystick(canvas, joy)
@@ -288,6 +302,7 @@ class Renderer {
     private fun drawGround(canvas: Canvas, world: Scene) {
         val w = world.worldSize
 
+        // Base grass diamond.
         ground.reset()
         ground.moveTo(projX(0f, 0f), projY(0f, 0f))
         ground.lineTo(projX(w, 0f), projY(w, 0f))
@@ -297,15 +312,36 @@ class Renderer {
         fill.color = grassColor
         canvas.drawPath(ground, fill)
 
-        stroke.color = grassLine
-        stroke.strokeWidth = 2f
-        var g = 0f
-        while (g <= w) {
-            canvas.drawLine(projX(g, 0f), projY(g, 0f), projX(g, w), projY(g, w), stroke)
-            canvas.drawLine(projX(0f, g), projY(0f, g), projX(w, g), projY(w, g), stroke)
-            g += 140f
+        // A "mowed lawn" checkerboard of darker tiles, culled to the viewport.
+        fill.color = grassAlt
+        val tile = 300f
+        var i = 0
+        var gx = 0f
+        while (gx < w) {
+            val gx2 = (gx + tile).coerceAtMost(w)
+            var j = 0
+            var gy = 0f
+            while (gy < w) {
+                val gy2 = (gy + tile).coerceAtMost(w)
+                if ((i + j) and 1 == 1) {
+                    val ccx = projX((gx + gx2) / 2f, (gy + gy2) / 2f)
+                    val ccy = projY((gx + gx2) / 2f, (gy + gy2) / 2f)
+                    if (ccx > -420f && ccx < world.viewportW + 420f && ccy > -420f && ccy < world.viewportH + 420f) {
+                        tilePath.reset()
+                        tilePath.moveTo(projX(gx, gy), projY(gx, gy))
+                        tilePath.lineTo(projX(gx2, gy), projY(gx2, gy))
+                        tilePath.lineTo(projX(gx2, gy2), projY(gx2, gy2))
+                        tilePath.lineTo(projX(gx, gy2), projY(gx, gy2))
+                        tilePath.close()
+                        canvas.drawPath(tilePath, fill)
+                    }
+                }
+                gy = gy2; j++
+            }
+            gx = gx2; i++
         }
 
+        // Raised border along the diamond edges.
         stroke.color = borderColor
         stroke.strokeWidth = 12f
         canvas.drawPath(ground, stroke)
@@ -321,14 +357,28 @@ class Renderer {
         val rx = h.radius * ISO_X * zoom * SQRT2
         val ry = h.radius * ISO_Y * zoom * SQRT2
 
+        // Soft outer shadow so the pit sits in the ground.
         fill.color = 0x22000000
-        canvas.drawOval(cx - rx - 7f, cy - ry - 4f, cx + rx + 7f, cy + ry + 4f, fill)
-        fill.color = Color.BLACK
-        canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, fill)
+        canvas.drawOval(cx - rx - 8f, cy - ry - 5f, cx + rx + 8f, cy + ry + 5f, fill)
+
+        // The pit itself: a radial gradient from black to a hint of grey at the rim.
+        val rad = maxOf(rx, ry).coerceAtLeast(1f)
+        holePaint.shader = RadialGradient(
+            cx, cy, rad,
+            intArrayOf(0xFF000000.toInt(), 0xFF0A0A0A.toInt(), 0xFF1C1C1C.toInt()),
+            floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP,
+        )
+        canvas.drawOval(cx - rx, cy - ry, cx + rx, cy + ry, holePaint)
+        holePaint.shader = null
+
         // Coloured rim so holes are told apart at a glance.
         stroke.color = h.rimColor
-        stroke.strokeWidth = (4f * zoom).coerceIn(3f, 9f)
+        stroke.strokeWidth = (4f * zoom).coerceIn(3f, 10f)
         canvas.drawOval(cx - rx + 2f, cy - ry + 2f, cx + rx - 2f, cy + ry - 2f, stroke)
+        // A faint top highlight for a touch of volume.
+        stroke.color = 0x33FFFFFF
+        stroke.strokeWidth = 2f
+        canvas.drawOval(cx - rx * 0.7f, cy - ry - 1f, cx + rx * 0.7f, cy - ry * 0.2f, stroke)
     }
 
     /** Opponent name tags, drawn after props so they aren't hidden behind trees. */
@@ -371,31 +421,45 @@ class Renderer {
         shadow.color = 0x33000000
         canvas.drawOval(gx - r * 0.95f, gy - r * 0.5f, gx + r * 0.95f, gy + r * 0.5f, shadow)
 
+        // Outline width scales with size so props stay crisp at any zoom.
+        val ow = (2.2f * zoom * s).coerceIn(1.5f, 5f)
+
         when (prop.type) {
             PropType.BUSH -> {
                 fill.color = body
                 canvas.drawCircle(gx, gy - r * 0.5f, r, fill)
-                fill.color = accent
-                canvas.drawCircle(gx - r * 0.3f, gy - r * 0.75f, r * 0.5f, fill)
+                stroke.color = darken(body, 0.6f); stroke.strokeWidth = ow
+                canvas.drawCircle(gx, gy - r * 0.5f, r, stroke)
+                fill.color = 0xFF9CCC65.toInt() // sun-side highlight
+                canvas.drawCircle(gx - r * 0.32f, gy - r * 0.72f, r * 0.45f, fill)
             }
             PropType.TREE -> {
                 val trunkW = r * 0.38f
                 fill.color = accent
                 rect.set(gx - trunkW, gy - h * 0.6f, gx + trunkW, gy)
                 canvas.drawRect(rect, fill)
+                stroke.color = darken(accent, 0.7f); stroke.strokeWidth = ow
+                canvas.drawRect(rect, stroke)
                 fill.color = body
                 canvas.drawCircle(gx, gy - h * 0.72f, r, fill)
-                fill.color = 0xFF43A047.toInt()
-                canvas.drawCircle(gx - r * 0.28f, gy - h * 0.8f, r * 0.55f, fill)
+                stroke.color = darken(body, 0.6f); stroke.strokeWidth = ow
+                canvas.drawCircle(gx, gy - h * 0.72f, r, stroke)
+                fill.color = 0xFF66BB6A.toInt()
+                canvas.drawCircle(gx - r * 0.28f, gy - h * 0.8f, r * 0.5f, fill)
             }
             PropType.CAR -> {
                 val bw = r * 1.35f
                 fill.color = body
                 rect.set(gx - bw, gy - h * 0.55f, gx + bw, gy)
                 canvas.drawRoundRect(rect, r * 0.35f, r * 0.35f, fill)
+                stroke.color = darken(body, 0.6f); stroke.strokeWidth = ow
+                canvas.drawRoundRect(rect, r * 0.35f, r * 0.35f, stroke)
                 fill.color = accent
                 rect.set(gx - bw * 0.6f, gy - h * 1.15f, gx + bw * 0.6f, gy - h * 0.5f)
                 canvas.drawRoundRect(rect, r * 0.3f, r * 0.3f, fill)
+                fill.color = 0x9990CAF9.toInt() // windshield glint
+                rect.set(gx - bw * 0.42f, gy - h * 1.02f, gx + bw * 0.42f, gy - h * 0.62f)
+                canvas.drawRoundRect(rect, r * 0.2f, r * 0.2f, fill)
             }
             PropType.HOUSE -> {
                 val bw = r * 0.9f
@@ -403,6 +467,14 @@ class Renderer {
                 fill.color = body
                 rect.set(gx - bw, wallTop, gx + bw, gy)
                 canvas.drawRect(rect, fill)
+                // Shade the left face for a hint of 3D.
+                fill.color = darken(body, 0.82f)
+                rect.set(gx - bw, wallTop, gx - bw * 0.2f, gy)
+                canvas.drawRect(rect, fill)
+                stroke.color = darken(body, 0.55f); stroke.strokeWidth = ow
+                rect.set(gx - bw, wallTop, gx + bw, gy)
+                canvas.drawRect(rect, stroke)
+                // Pitched roof.
                 fill.color = accent
                 roof.reset()
                 roof.moveTo(gx - bw * 1.15f, wallTop)
@@ -410,7 +482,10 @@ class Renderer {
                 roof.lineTo(gx, gy - h)
                 roof.close()
                 canvas.drawPath(roof, fill)
-                fill.color = darken(body, 0.6f)
+                stroke.color = darken(accent, 0.6f); stroke.strokeWidth = ow
+                canvas.drawPath(roof, stroke)
+                // Door.
+                fill.color = darken(body, 0.5f)
                 rect.set(gx - bw * 0.24f, gy - h * 0.28f, gx + bw * 0.24f, gy)
                 canvas.drawRect(rect, fill)
             }
@@ -540,6 +615,18 @@ class Renderer {
         else -> "${n}th"
     }
 
+    private fun ensureVignette(w: Int, h: Int) {
+        if (w == vigW && h == vigH && vignette.shader != null) return
+        vigW = w
+        vigH = h
+        val r = hypot(w / 2f, h / 2f).coerceAtLeast(1f)
+        vignette.shader = RadialGradient(
+            w / 2f, h / 2f, r,
+            intArrayOf(0x00000000, 0x00000000, 0x55000000),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP,
+        )
+    }
+
     private fun darken(color: Int, f: Float): Int {
         val a = (color ushr 24) and 0xFF
         val r = (((color ushr 16) and 0xFF) * f).toInt().coerceIn(0, 255)
@@ -555,8 +642,8 @@ class Renderer {
         private val SQRT2 = sqrt(2f)
 
         /** Zoom eases between these as the player's hole grows. */
-        private const val START_ZOOM = 2.4f
-        private const val MIN_ZOOM = 0.7f
+        private const val START_ZOOM = 3.0f
+        private const val MIN_ZOOM = 0.85f
         private const val ZOOM_LERP = 0.06f
     }
 }
