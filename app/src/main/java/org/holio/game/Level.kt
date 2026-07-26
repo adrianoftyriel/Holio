@@ -37,6 +37,22 @@ sealed class Level(val id: String, val title: String, val subtitle: String) {
                 "mont_saint_michel", "Mont-Saint-Michel", "France · walled town",
                 48.6340, -1.5130, 48.6370, -1.5085,
             ),
+            Osm(
+                "golden_gate_park", "Golden Gate Park", "San Francisco · park",
+                37.7670, -122.4720, 37.7710, -122.4640,
+            ),
+            Osm(
+                "hyde_park", "Hyde Park", "London · park",
+                51.5055, -0.1680, 51.5090, -0.1600,
+            ),
+            Osm(
+                "stanford", "Stanford Quad", "California · campus",
+                37.4260, -122.1710, 37.4300, -122.1655,
+            ),
+            Osm(
+                "venice", "Venice", "Italy · canal town",
+                45.4330, 12.3350, 45.4355, 12.3410,
+            ),
         )
     }
 }

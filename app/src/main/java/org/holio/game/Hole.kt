@@ -86,6 +86,6 @@ class Hole(
         private const val GROWTH = 0.55f
 
         /** Base travel speed in pixels per second at the starting radius. */
-        private const val BASE_SPEED = 620f
+        private const val BASE_SPEED = 372f
     }
 }

@@ -114,12 +114,28 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
             r.set(left, mt, left + bw, mt + bh); mt += bh + gap
         }
 
-        // Level picker.
+        // Level picker: a 2-column grid so many levels fit on screen.
+        val cols = 2
+        val cw = min(w * 0.40f, 470f)
+        val ch = 104f
+        val cgx = 36f
+        val cgy = 18f
+        val gridW = cols * cw + (cols - 1) * cgx
+        val gx0 = w / 2f - gridW / 2f
+        val gy0 = h * 0.17f
+        for (i in rLevels.indices) {
+            val col = i % cols
+            val row = i / cols
+            val lx = gx0 + col * (cw + cgx)
+            val ly = gy0 + row * (ch + cgy)
+            rLevels[i].set(lx, ly, lx + cw, ly + ch)
+        }
+        val rows = (rLevels.size + cols - 1) / cols
+        val backY = gy0 + rows * (ch + cgy) + 6f
+        rLevelBack.set(w / 2f - 160f, backY, w / 2f + 160f, backY + 82f)
+
+        val lleft = w / 2f - min(w * 0.5f, 620f).coerceAtLeast(360f) / 2f
         val lw = min(w * 0.5f, 620f).coerceAtLeast(360f)
-        val lleft = w / 2f - lw / 2f
-        var lt = h * 0.24f
-        for (r in rLevels) { r.set(lleft, lt, lleft + lw, lt + 92f); lt += 92f + 18f }
-        rLevelBack.set(w / 2f - 160f, lt + 6f, w / 2f + 160f, lt + 6f + 82f)
 
         // Settings screen.
         val n = rDurations.size
@@ -351,7 +367,7 @@ class GameView(context: Context) : SurfaceView(context), SurfaceHolder.Callback 
         val gen = ++loadGeneration
         Thread {
             try {
-                val result = osmLoader.load(level)
+                val result = osmLoader.load(level, world.worldSize)
                 post {
                     if (gen != loadGeneration || screen != Screen.LOADING) return@post
                     if (result.props.isEmpty()) {

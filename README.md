@@ -25,9 +25,10 @@ map, and a hole that's big enough can even swallow a smaller one.
   - **Classic Field** — the original offline procedural map.
   - **Real-world levels** — actual locations pulled live from OpenStreetMap and
     turned into things to eat: trees, bushes and street furniture become small
-    prey, buildings become the big prize. Bundled picks include **Central Park**
-    (New York), the **MIT campus**, and **Mont-Saint-Michel**. If the map can't
-    be reached, the picker says so and you can choose Classic instead.
+    prey, buildings become the big prize. Bundled picks: **Central Park** (NY),
+    **MIT campus**, **Mont-Saint-Michel**, **Golden Gate Park** (SF), **Hyde
+    Park** (London), **Stanford Quad**, and **Venice**. If the map can't be
+    reached, the picker says so and you can choose Classic instead.
 - **Settings** (from the menu) — choose the round length (1:00, 2:00 or 3:00);
   the choice is saved and used for every new round.
 - **Local Multiplayer** — play others on the same Wi-Fi (see below).
