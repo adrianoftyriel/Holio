@@ -245,7 +245,8 @@ class Renderer {
         val cy = canvas.height / 2f
         drawCenteredText(canvas, "Loading…", cx, cy - 46f, 80f, Color.WHITE)
         drawCenteredText(canvas, title, cx, cy + 36f, 52f, 0xFFB2FF59.toInt())
-        drawCenteredText(canvas, "fetching real map data from OpenStreetMap", cx, cy + 108f, 30f, 0x99FFFFFF.toInt())
+        drawCenteredText(canvas, "fetching map data from OpenStreetMap —", cx, cy + 104f, 30f, 0x99FFFFFF.toInt())
+        drawCenteredText(canvas, "this can take a few seconds", cx, cy + 146f, 30f, 0x99FFFFFF.toInt())
     }
 
     /**
