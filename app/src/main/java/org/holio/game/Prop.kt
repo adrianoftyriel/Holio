@@ -16,13 +16,13 @@ enum class PropType(
     val heightFactor: Float,
 ) {
     // Small groundcover — the very first things a tiny hole can eat.
-    BUSH(10f, 15f, 1, 0xFF66BB6A.toInt(), 0xFF388E3C.toInt(), 1.1f),
-    // Trees — a canopy with a trunk.
-    TREE(15f, 22f, 3, 0xFF2E7D32.toInt(), 0xFF5D4037.toInt(), 2.6f),
-    // Cars — medium, worth more.
-    CAR(16f, 20f, 6, 0xFFE53935.toInt(), 0xFF212121.toInt(), 1.0f),
-    // Houses — the big prize, only a grown hole can take them.
-    HOUSE(30f, 44f, 15, 0xFFECC08D.toInt(), 0xFF8D3B2E.toInt(), 1.9f),
+    BUSH(7f, 18f, 1, 0xFF66BB6A.toInt(), 0xFF388E3C.toInt(), 1.1f),
+    // Trees — a canopy with a trunk; range from saplings to big oaks.
+    TREE(15f, 36f, 3, 0xFF2E7D32.toInt(), 0xFF5D4037.toInt(), 2.6f),
+    // Cars — from compacts to vans.
+    CAR(16f, 34f, 6, 0xFFE53935.toInt(), 0xFF212121.toInt(), 1.0f),
+    // Buildings — cottages up to whole blocks; the big prize.
+    HOUSE(30f, 90f, 15, 0xFFECC08D.toInt(), 0xFF8D3B2E.toInt(), 1.9f),
 }
 
 /**

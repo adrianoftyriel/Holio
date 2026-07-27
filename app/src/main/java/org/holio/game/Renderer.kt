@@ -76,6 +76,7 @@ class Renderer {
         canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), vignette)
 
         drawHud(canvas, world)
+        drawSizeBar(canvas, world)
         drawJoystick(canvas, joy)
         drawGear(canvas, gear)
         if (world.state == GameWorld.State.GAME_OVER) {
@@ -514,6 +515,55 @@ class Renderer {
             canvas.drawText("${i + 1}. ${h.name}  ${h.score}", w - 24f, y, text)
             y += 42f
         }
+        text.clearShadowLayer()
+    }
+
+    /**
+     * Bottom-centre size bar: a growing hole icon plus a progress bar that
+     * fills as the player's hole approaches the biggest prop in the level.
+     */
+    private fun drawSizeBar(canvas: Canvas, world: Scene) {
+        val w = canvas.width.toFloat()
+        val hgt = canvas.height.toFloat()
+        val h = world.hole
+        val base = h.baseRadius
+        val denom = (world.biggestPropRadius - base).coerceAtLeast(1f)
+        val progress = ((h.radius - base) / denom).coerceIn(0f, 1f)
+
+        val barW = (w * 0.5f).coerceIn(240f, 560f)
+        val barH = 30f
+        val bx = (w - barW) / 2f
+        val by = hgt - 66f
+
+        // Growing hole icon to the left of the bar.
+        val icX = bx - 40f
+        val icY = by + barH / 2f
+        val icR = 9f + progress * 12f
+        fill.color = 0x55000000
+        canvas.drawCircle(icX, icY + 3f, icR, fill)
+        fill.color = Color.BLACK
+        canvas.drawCircle(icX, icY, icR, fill)
+        stroke.color = h.rimColor
+        stroke.strokeWidth = 3f
+        canvas.drawCircle(icX, icY, icR, stroke)
+
+        // Track + fill.
+        rect.set(bx, by, bx + barW, by + barH)
+        fill.color = 0x66000000
+        canvas.drawRoundRect(rect, 15f, 15f, fill)
+        if (progress > 0.001f) {
+            rect.set(bx, by, bx + barW * progress, by + barH)
+            fill.color = if (progress >= 0.999f) 0xFFFFD54F.toInt() else 0xFFB2FF59.toInt()
+            canvas.drawRoundRect(rect, 15f, 15f, fill)
+        }
+        stroke.color = 0x88FFFFFF.toInt()
+        stroke.strokeWidth = 3f
+        rect.set(bx, by, bx + barW, by + barH)
+        canvas.drawRoundRect(rect, 15f, 15f, stroke)
+
+        val label = if (progress >= 0.999f) "Biggest on the map!" else "Size ${h.radius.toInt()}"
+        text.setShadowLayer(5f, 0f, 2f, 0x99000000.toInt())
+        drawCenteredText(canvas, label, bx + barW / 2f, by + barH / 2f, 24f, Color.WHITE)
         text.clearShadowLayer()
     }
 

@@ -25,7 +25,7 @@ class GameWorld : Scene {
     class RemoteInfo(val id: Int, val name: String)
 
     /** Square map, in pixels. Big and open — the camera zooms to keep it readable. */
-    override val worldSize = 4200f
+    override val worldSize = 6000f
 
     /** The local player's hole (host or single-player). */
     override val hole = Hole(worldSize / 2f, worldSize / 2f, 40f, "You", 0xFF80D8FF.toInt(), isPlayer = true)
@@ -42,6 +42,10 @@ class GameWorld : Scene {
     var timeLeftMs = DEFAULT_ROUND_MILLIS
         private set
     override var state = State.PLAYING
+        private set
+
+    /** Largest prop radius in the current level (for the size / progress bar). */
+    override var biggestPropRadius = 60f
         private set
 
     /** Round length in ms; set from Settings before [restart] to change it. */
@@ -147,6 +151,7 @@ class GameWorld : Scene {
                 props.add(Prop(t.x, t.y, t.radius, t.type, t.rotationDeg))
             }
         }
+        biggestPropRadius = props.maxOfOrNull { it.radius } ?: 60f
     }
 
     fun update(dtSeconds: Float) {
@@ -404,10 +409,10 @@ class GameWorld : Scene {
         props.clear()
         val rng = Random(MAP_SEED)
 
-        val cell = 150f
-        val margin = 120f
+        val cell = 190f
+        val margin = 140f
         val center = worldSize / 2f
-        val clearRadius = 260f
+        val clearRadius = 320f
 
         var gx = margin
         while (gx < worldSize - margin) {
@@ -418,7 +423,9 @@ class GameWorld : Scene {
 
                 if (hypot(px - center, py - center) > clearRadius && rng.nextFloat() < 0.78f) {
                     val type = pickType(rng)
-                    val r = type.minRadius + rng.nextFloat() * (type.maxRadius - type.minRadius)
+                    var r = type.minRadius + rng.nextFloat() * (type.maxRadius - type.minRadius)
+                    // Occasionally a much larger specimen for size variety.
+                    if (rng.nextFloat() < 0.15f) r *= 1.4f + rng.nextFloat() * 0.6f
                     val rot = rng.nextFloat() * 360f
                     props.add(Prop(px, py, r, type, rot))
                 }

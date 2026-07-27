@@ -83,7 +83,8 @@ class OsmLevelLoader {
             val py = offY + ((ys[i] - minY).toFloat()) * scale
             if (hypot(px - center, py - center) < clearRadius) continue // keep spawn clear
             val t = types[i]
-            val r = t.minRadius + rng.nextFloat() * (t.maxRadius - t.minRadius)
+            var r = t.minRadius + rng.nextFloat() * (t.maxRadius - t.minRadius)
+            if (rng.nextFloat() < 0.15f) r *= 1.4f + rng.nextFloat() * 0.6f
             built.add(Prop(px, py, r, t, rng.nextFloat() * 360f))
         }
 

@@ -50,6 +50,9 @@ map, and a hole that's big enough can even swallow a smaller one.
   a bigger hole and the same happens to you.
 - **Zoom:** the view starts tight and pulls back as you grow, so you always have
   room to manoeuvre.
+- **Size bar:** the bar at the bottom shows how big your hole is, with a growing
+  hole icon and a fill that tops out when you're big enough to swallow the
+  largest thing on the map.
 - **Goal:** finish the round with the highest score. The round ends when the
   timer runs out **or** when there's nothing left on the map to swallow —
   whichever comes first — and the final standings show where you placed.
@@ -145,7 +148,7 @@ The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Install it with:
 
 - **minSdk:** 24 (Android 7.0)
 - **targetSdk / compileSdk:** 34
-- Orientation is landscape.
+- Orientation: portrait or landscape — the HUD and camera adapt as you rotate.
 
 ## Releases (CI)
 

@@ -23,6 +23,9 @@ class ClientScene : Scene {
     override var state = GameWorld.State.PLAYING
         private set
 
+    override var biggestPropRadius = 60f
+        private set
+
     private var myIndex = 0
     private var secs = 0
     private val placeholder = Hole(1400f, 1400f, 40f)
@@ -67,6 +70,7 @@ class ClientScene : Scene {
             val type = types[a.getInt(3).coerceIn(0, types.size - 1)]
             props.add(Prop(a.getDouble(0).toFloat(), a.getDouble(1).toFloat(), a.getDouble(2).toFloat(), type, a.getDouble(4).toFloat()))
         }
+        biggestPropRadius = props.maxOfOrNull { it.radius } ?: 60f
     }
 
     /** Apply a per-tick "state" message. */
