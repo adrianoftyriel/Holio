@@ -21,6 +21,9 @@ interface Scene {
 
     val state: GameWorld.State
 
+    /** Radius of the largest prop in this level — the size-bar's "full" mark. */
+    val biggestPropRadius: Float
+
     fun secondsLeft(): Int
     fun standings(): List<Hole>
 }
