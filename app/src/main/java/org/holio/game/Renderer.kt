@@ -266,8 +266,8 @@ class Renderer {
 
     // ---- Isometric projection ------------------------------------------------
 
-    private fun projX(x: Float, y: Float) = (x - y) * ISO_X * zoom + offX
-    private fun projY(x: Float, y: Float) = (x + y) * ISO_Y * zoom + offY
+    private fun projX(x: Float, y: Float) = (x - y) * Iso.X * zoom + offX
+    private fun projY(x: Float, y: Float) = (x + y) * Iso.Y * zoom + offY
 
     /** Ease the zoom toward a target set by the player's size, then centre. */
     private fun computeCamera(world: Scene) {
@@ -279,8 +279,8 @@ class Renderer {
         val w = world.worldSize
         val vw = world.viewportW
         val vh = world.viewportH
-        val zx = ISO_X * zoom
-        val zy = ISO_Y * zoom
+        val zx = Iso.X * zoom
+        val zy = Iso.Y * zoom
         val hx = (player.x - player.y) * zx
         val hy = (player.x + player.y) * zy
 
@@ -355,8 +355,8 @@ class Renderer {
     private fun drawHolePit(canvas: Canvas, h: Hole) {
         val cx = projX(h.x, h.y)
         val cy = projY(h.x, h.y)
-        val rx = h.radius * ISO_X * zoom * SQRT2
-        val ry = h.radius * ISO_Y * zoom * SQRT2
+        val rx = h.radius * Iso.X * zoom * SQRT2
+        val ry = h.radius * Iso.Y * zoom * SQRT2
 
         // Soft outer shadow so the pit sits in the ground.
         fill.color = 0x22000000
@@ -387,7 +387,7 @@ class Renderer {
         for (h in world.holes) {
             if (h.isPlayer) continue
             val cx = projX(h.x, h.y)
-            val ry = h.radius * ISO_Y * zoom * SQRT2
+            val ry = h.radius * Iso.Y * zoom * SQRT2
             text.setShadowLayer(5f, 0f, 2f, 0xCC000000.toInt())
             drawCenteredText(canvas, h.name, cx, projY(h.x, h.y) - ry - 20f, 32f, h.rimColor)
             text.clearShadowLayer()
@@ -686,9 +686,6 @@ class Renderer {
     }
 
     companion object {
-        /** Half-width and quarter-height of a world unit in the 2:1 iso diamond. */
-        private const val ISO_X = 0.5f
-        private const val ISO_Y = 0.25f
         private val SQRT2 = sqrt(2f)
 
         /** Zoom eases between these as the player's hole grows. */
