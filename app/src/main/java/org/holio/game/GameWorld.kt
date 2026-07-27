@@ -157,14 +157,17 @@ class GameWorld : Scene {
     fun update(dtSeconds: Float) {
         if (state != State.PLAYING) return
 
-        // Player movement from joystick input.
+        // Player movement. Joystick input is screen-space, so map it through the
+        // isometric projection: pushing "up" on screen moves the hole up on screen.
         val speed = hole.speed()
-        hole.move(inputX * speed * dtSeconds, inputY * speed * dtSeconds, worldSize)
+        val (mx, my) = Iso.screenToWorld(inputX, inputY)
+        hole.move(mx * speed * dtSeconds, my * speed * dtSeconds, worldSize)
 
-        // Remote human players move from their last received network input.
+        // Remote human players move from their last received (screen-space) input.
         for (np in netPlayers) {
             val sp = np.hole.speed()
-            np.hole.move(np.inX * sp * dtSeconds, np.inY * sp * dtSeconds, worldSize)
+            val (rx, ry) = Iso.screenToWorld(np.inX, np.inY)
+            np.hole.move(rx * sp * dtSeconds, ry * sp * dtSeconds, worldSize)
         }
 
         updateAi(dtSeconds)
