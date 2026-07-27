@@ -121,26 +121,56 @@ class OsmLevelLoader {
     private fun buildQuery(level: Level.Osm): String {
         val bbox = "${level.south},${level.west},${level.north},${level.east}"
         // Buildings first so they survive the global element cap in dense areas.
+        // Amenities are narrowed to the few kinds we actually place, to keep the
+        // query light (a bare node["amenity"] pulls far more than we use).
         return "[out:json][timeout:25];(" +
             "way[\"building\"]($bbox);" +
             "node[\"natural\"=\"tree\"]($bbox);" +
             "node[\"natural\"=\"shrub\"]($bbox);" +
-            "node[\"amenity\"]($bbox);" +
+            "node[\"amenity\"~\"bench|drinking_water|fountain|waste_basket|bicycle_parking\"]($bbox);" +
             ");out center $ELEMENT_CAP;"
     }
 
+    /**
+     * Fetch with resilience: the public Overpass servers frequently return 504s
+     * under load, so try several mirrors, each a couple of times with backoff,
+     * before giving up.
+     */
     private fun fetch(query: String): String {
-        val url = URL(OVERPASS + "?data=" + URLEncoder.encode(query, "UTF-8"))
-        val conn = (url.openConnection() as HttpURLConnection).apply {
+        val data = URLEncoder.encode(query, "UTF-8")
+        var lastError = "unavailable"
+        for (base in ENDPOINTS) {
+            for (attempt in 0 until ATTEMPTS_PER_ENDPOINT) {
+                try {
+                    return request(base, data)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw e
+                } catch (e: Exception) {
+                    lastError = e.message ?: "network error"
+                    try {
+                        Thread.sleep(500L * (attempt + 1))
+                    } catch (ie: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw ie
+                    }
+                }
+            }
+        }
+        throw java.io.IOException("map servers busy ($lastError)")
+    }
+
+    private fun request(base: String, data: String): String {
+        val conn = (URL("$base?data=$data").openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             setRequestProperty("User-Agent", "Holio-Game")
-            connectTimeout = 20_000
+            setRequestProperty("Accept", "application/json")
+            connectTimeout = 12_000
             readTimeout = 30_000
         }
         try {
-            if (conn.responseCode != 200) {
-                throw java.io.IOException("Overpass HTTP ${conn.responseCode}")
-            }
+            val code = conn.responseCode
+            if (code != 200) throw java.io.IOException("HTTP $code")
             return conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
             conn.disconnect()
@@ -148,7 +178,15 @@ class OsmLevelLoader {
     }
 
     companion object {
-        private const val OVERPASS = "https://overpass-api.de/api/interpreter"
+        /** Public Overpass mirrors, tried in order when one is busy. */
+        private val ENDPOINTS = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+            "https://overpass.osm.ch/api/interpreter",
+        )
+        private const val ATTEMPTS_PER_ENDPOINT = 2
+
         /** Cap on elements requested from Overpass (keeps payloads sane). */
         private const val ELEMENT_CAP = 900
         /** Cap on props actually placed, for on-device performance. */
